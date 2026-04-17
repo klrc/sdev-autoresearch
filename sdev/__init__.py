@@ -27,6 +27,29 @@ from typing import Optional, Iterator, Callable
 
 
 # ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    "SerialResult",
+    "ParseResult",
+    "SerialSession",
+    "connect",
+    "disconnect",
+    "ensure_connection",
+    "cli",
+    "run",
+    "stream",
+    "parse",
+    "save_default",
+    "load_defaults",
+    "DEFAULT_TIMEOUT",
+    "DEFAULT_BAUD",
+    "DEFAULT_DEVICE",
+]
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -310,6 +333,11 @@ _default_session = SerialSession()
 def connect(device: Optional[str] = None, baud: int = DEFAULT_BAUD) -> None:
     """Open (or reopen) the default serial connection."""
     _default_session.connect(device, baud)
+
+
+def disconnect() -> None:
+    """Close the default serial connection if open."""
+    _default_session.close()
 
 
 def ensure_connection() -> serial.Serial:
