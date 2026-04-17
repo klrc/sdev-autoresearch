@@ -214,10 +214,12 @@ class SerialSession:
                 pass
             self._connection = None
 
-    def interrupt(self, timeout: Optional[float] = None) -> bool:
+    def interrupt(self, timeout: Optional[float] = 5) -> bool:
         """Send Ctrl+C to interrupt a running command and wait for the prompt.
 
         Returns True if a prompt was detected, False if timeout elapsed.
+        Default timeout is 5s — enough to catch prompt echo, not enough to
+        block for minutes.
         """
         ser = self._ensure_open()
         ser.write(b"\x03")
@@ -237,12 +239,12 @@ class SerialSession:
             except serial.SerialException:
                 return False
 
+            chunk = bytes(chunk)
             if chunk:
                 buf.extend(chunk)
                 if self._check_prompt(bytes(buf)):
                     return True
-            else:
-                time.sleep(min(0.1, remaining))
+            time.sleep(min(0.1, max(remaining, 0.05)))
 
     def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
         """Send *command* over serial and return its output.
