@@ -6,9 +6,14 @@ Usage::
     sdev -p "ls /proc/meminfo" -d /dev/ttyUSB0 -b 115200
     sdev -p "tail -f /var/log/syslog" --stream -d /dev/ttyUSB0
     sdev -p "tail -f /var/log/syslog" --stream --grep "ERROR" -d /dev/ttyUSB0
+    sdev -p "tail -f /var/log/syslog" --stream --line-mode -d /dev/ttyUSB0
     sdev -p "cat /proc/meminfo" --parse "Mem(Available|Total)" -d /dev/ttyUSB0
+    sdev -p "./benchmark" --end-flag "Frame rate:" -d /dev/ttyUSB0
+    sdev -p "uptime" --doctor -d /dev/ttyUSB0
+    sdev -p "ls" --prompt "[root@board]# " -d /dev/ttyUSB0
     sdev set-default /dev/ttyUSB0 115200
     sdev -p "ls /proc/meminfo"          # uses saved defaults
+    sdev --interrupt -d /dev/ttyUSB0    # send Ctrl+C without a command
 """
 
 import argparse
