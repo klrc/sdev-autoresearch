@@ -8,25 +8,6 @@ Small toolkit for automating a serial-attached Linux shell.
 pip install -e .
 ```
 
-## Python API
-
-```python
-import sdev
-
-# Session-based (recommended)
-with sdev.SerialSession("/dev/ttyUSB0", 115200) as session:
-    result = session.cli("ls /proc/meminfo")
-    print(result.output)
-
-# Streaming for long-running commands
-for chunk in session.stream("tail -f /var/log/syslog"):
-    print(chunk, end="")
-
-# Parsing with regex filtering
-parsed = session.parse("cat /proc/meminfo", pattern=r"Mem.*")
-print(parsed.matched)
-```
-
 ## CLI
 
 ```bash

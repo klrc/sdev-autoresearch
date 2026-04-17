@@ -41,6 +41,7 @@ __all__ = [
     "run",
     "stream",
     "parse",
+    "interrupt",
     "save_default",
     "load_defaults",
     "DEFAULT_TIMEOUT",
@@ -108,6 +109,14 @@ def _strip_echo(buf: bytes, command: str) -> bytes:
     return buf
 
 
+_ANSI_RE = re.compile(rb"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(buf: bytes) -> bytes:
+    """Remove ANSI escape sequences from *buf*."""
+    return _ANSI_RE.sub(b"", buf)
+
+
 def _prompt_detected(buf: bytes) -> bool:
     """Return True if a known shell prompt appears at the tail of *buf*."""
     stripped = buf.rstrip(b"\r\n")
@@ -172,6 +181,12 @@ class SerialSession:
                 pass
             self._connection = None
 
+    def interrupt(self) -> None:
+        """Send Ctrl+C to interrupt a running command on the remote shell."""
+        ser = self._ensure_open()
+        ser.write(b"\x03")
+        ser.flush()
+
     def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
         """Send *command* over serial and return its output.
 
@@ -215,6 +230,7 @@ class SerialSession:
 
         elapsed = time.monotonic() - start
         clean = bytes(buf)
+        clean = _strip_ansi(clean)
         clean = _strip_echo(clean, command)
         clean = _strip_prompt(clean)
         return SerialResult(
@@ -377,6 +393,11 @@ def parse(
 ) -> ParseResult:
     """Run *command* on the default connection and return parsed output."""
     return _default_session.parse(command, pattern, timeout)
+
+
+def interrupt() -> None:
+    """Send Ctrl+C on the default connection to interrupt a running command."""
+    _default_session.interrupt()
 
 
 # ---------------------------------------------------------------------------
