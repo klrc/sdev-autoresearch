@@ -48,6 +48,19 @@ Dev is required to **triage those GitHub Issues before development** (`developme
 4. **Architecture**  
    From **reasonableness and simplicity**, review structure and APIs. **You may challenge dev’s design** with concrete suggestions or alternatives — adversarial review is expected, not personal.
 
+5. **Test-owned coverage (not only dev’s self-tests)**  
+   Running **`pytest tests/`** as written by dev is **necessary but not sufficient**. You must **invent and add** your own automated cases: edge cases, regression guards, CLI/API behavior dev did not cover, timeout/prompt edge paths, and property-style checks where appropriate. **Goal:** widen the safety net so dev cannot “pass” only by satisfying their own narrow tests.
+
+---
+
+## Test-owned additions (`tests/`)
+
+- **Authority**: You **may create and edit** files under **`tests/`** (and small fixtures next to them if needed). You **must not** edit `development.md` or `test.md`. Do not change production code **unless** fixing a test harness import path — production fixes belong in issues for dev unless the human says otherwise.
+- **Discovery loop**: Read the PR diff and `sdev/` (and `README.md`). List risks (“what could break in production?”). For each, add or extend a **pytest** test with clear names and assertions.
+- **Naming**: Prefer `tests/test_adversarial_<area>.py` or `tests/test_<concern>_<short>.py` so dev sees coverage came from the test role.
+- **Land the tests**: When you add tests on a PR you are validating, **commit them to that PR’s branch** from the test worktree and **push** (same branch as `gh pr checkout <n>`), so CI and dev see one history. If you cannot push to that branch, **open a stacked PR** targeting the feature branch with **only** `tests/` changes, or describe the patch in a GitHub issue with file-level snippets.
+- **Merge policy**: If your new tests **fail** on the PR, **do not merge** — file or update a **`[test]`** issue with failure output; dev fixes or you adjust expectations after discussion. If your tests **pass** and the PR is otherwise acceptable, merge per §4.
+
 ---
 
 ## Design intent and goals (source of truth for objective 3)
@@ -74,6 +87,46 @@ Deviations (e.g. hidden globals, opaque magic, “temporary” hacks that become
 
 - Every command that can block (pytest, integration scripts, serial probes) **must** be wrapped with a **wall-clock timeout** (e.g. `timeout 5m …` on Linux, or equivalent).  
 - Prefer **~5 minutes** as the default ceiling unless a longer bound is explicitly justified in the PR.
+- **Order of work**: (1) run existing `pytest tests/` to see baseline; (2) **add or extend tests you authored** per **§ Test-owned additions**; (3) run **`pytest tests/` again** until green or until you block the PR with an issue. **Do not** stop after step (1) alone.
+
+### 2b. README workflow verification (mandatory)
+
+After `pip install -e .` and automated tests, confirm that **`README.md` user-facing flow** still works in the same environment you use for PR validation.
+
+- **Conda environment**: run **all** README checks and `pytest` inside the conda env named **`dev`**:  
+  `source "$(conda info --base)/etc/profile.d/conda.sh" && conda activate dev`  
+  (fish/csh users: use the equivalent `conda activate dev` for that shell.) Do not use a random system Python for these steps unless the human explicitly allows it.
+
+- **Why**: `README.md` is the contract for install + Python API + CLI; regressions there are **objective 2** failures even if unit tests pass.
+
+- **Checklist** (wrap each invocation in `timeout` as in §2; use the real serial device path if `/dev/ttyUSB0` is wrong on the host):
+
+  1. **Install (matches README “Installation”)**  
+     `timeout 5m pip install -e .` from the repo root (with `dev` activated).
+
+  2. **Automated tests**  
+     `timeout 5m python -m pytest tests/ -q` (or `pytest tests/ -q`).
+
+  3. **CLI — basic run (README “CLI” first example pattern)**  
+     `timeout 120 sdev -p "echo readme_ok" -d /dev/ttyUSB0 -b 115200`  
+     Adjust `-d` if the board is on another `ttyUSB*`. Obey the **serial time window** (§ Serial-port time window) for any real hardware.
+
+  4. **CLI — parse flag (README “Parse output with regex”)**  
+     `timeout 120 sdev -p "cat /proc/meminfo" --parse "Mem.*" -d /dev/ttyUSB0 -b 115200`  
+     If `cat /proc/meminfo` is unavailable on the target shell, use an equivalent short command and note the substitution in the PR/issue.
+
+  5. **CLI — stream flag (README “Stream output incrementally”)**  
+     Do **not** run an unbounded `tail -f` for automation. Use a **bounded** substitute that still exercises `--stream`, e.g.  
+     `timeout 60 sdev -p 'for i in 1 2 3; do echo stream_$i; sleep 0.2; done' --stream -d /dev/ttyUSB0 -b 115200`  
+     (Same serial-window rule applies.)
+
+  6. **CLI — defaults (README “Save defaults”)** only if it does not corrupt the human’s machine config against their wishes; otherwise skip with a **GitHub issue** comment explaining skip. If run: `sdev set-default …` then `timeout 120 sdev -p "echo after_default"` without `-d`/`-b`.
+
+  7. **Python API (README “Python API”)** — minimal script in `dev` env, **in the test serial window** if it opens real hardware, e.g.  
+     `timeout 120 python -c "import sdev; s=sdev.SerialSession('/dev/ttyUSB0',115200); s.connect(); r=s.cli('echo py_api'); print(r.output[:200]); s.close()"`  
+     Or use a short `with sdev.SerialSession(...) as session:` block mirroring README style.
+
+- If any step fails, file or update a **`[test]` / `test-feedback`** GitHub issue with the exact command, exit code, and trimmed output.
 
 ### 3. Evaluate
 
@@ -129,4 +182,4 @@ Keep bodies readable; do not paste multi-megabyte logs inline.
 
 ## NEVER STOP (test loop)
 
-Once the validation loop is running, **do not** ask the human for permission to continue each cycle. Follow the serial window, timeouts, and merge/issue rules until **manually** stopped.
+Once the validation loop is running, **do not** ask the human for permission to continue each cycle. Follow the serial window, timeouts, merge/issue rules, and **keep expanding `tests/`** when cycles are quiet until **manually** stopped.

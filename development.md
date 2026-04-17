@@ -99,6 +99,7 @@ All debugging and self-tests that could hang **must** use a **strict timeout** o
 - Maintain a sensible `.gitignore`; do not commit secrets, huge logs, or local venv artifacts.
 - Self-test before commit where applicable.
 - Open a **PR toward `main`** (or the agreed integration branch). Describe what changed on this branch in the PR body.
+- The **test** agent may **add commits under `tests/`** on your PR branch while validating (`test.md`, § Test-owned additions). Treat those commits as **legitimate review feedback**, not noise: if they fail CI, fix the product or discuss in the issue — **do not** delete adversarial tests without good cause.
 
 ---
 
