@@ -227,8 +227,26 @@ class SerialSession:
 
         deadline = timeout or DEFAULT_TIMEOUT
         start = time.monotonic()
+        buf = bytearray()
 
-        return False
+        while True:
+            remaining = deadline - (time.monotonic() - start)
+            if remaining <= 0:
+                return False
+
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException:
+                return False
+
+            if chunk:
+                buf.extend(chunk)
+                # Only keep recent bytes to avoid unbounded growth
+                if len(buf) > 65536:
+                    buf = buf[-32768:]
+                if self._check_prompt(bytes(buf)):
+                    return True
+            time.sleep(min(0.1, max(remaining, 0.05)))
 
     def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
         """Send *command* over serial and return its output.
