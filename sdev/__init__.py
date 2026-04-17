@@ -42,6 +42,7 @@ __all__ = [
     "stream",
     "parse",
     "interrupt",
+    "reconnect",
     "save_default",
     "load_defaults",
     "DEFAULT_TIMEOUT",
@@ -93,8 +94,13 @@ PROMPTS = [b"~# ", b"~$ ", b"# ", b"$ ", b"> "]
 
 def _strip_prompt(buf: bytes) -> bytes:
     """Remove a trailing shell prompt from *buf*, if present."""
+    return _strip_prompt_instance(buf, PROMPTS)
+
+
+def _strip_prompt_instance(buf: bytes, prompts: list[bytes]) -> bytes:
+    """Remove a trailing shell prompt from *buf* using specific prompts."""
     stripped = buf.rstrip(b"\r\n")
-    for p in PROMPTS:
+    for p in prompts:
         if stripped.endswith(p):
             return stripped[: -len(p)]
     return buf
@@ -133,10 +139,21 @@ def _prompt_detected(buf: bytes) -> bool:
 class SerialSession:
     """Manages a single serial connection with command execution and streaming."""
 
-    def __init__(self, device: str = DEFAULT_DEVICE, baud: int = DEFAULT_BAUD):
+    def __init__(
+        self,
+        device: str = DEFAULT_DEVICE,
+        baud: int = DEFAULT_BAUD,
+        prompts: Optional[list[bytes]] = None,
+    ):
         self._connection: Optional[serial.Serial] = None
         self.device = device
         self.baud = baud
+        self._prompts = prompts if prompts is not None else list(PROMPTS)
+
+    @property
+    def prompts(self) -> list[bytes]:
+        """Active prompt patterns used for detection."""
+        return list(self._prompts)
 
     @property
     def is_open(self) -> bool:
@@ -165,12 +182,28 @@ class SerialSession:
         self._connection.reset_input_buffer()
         self._connection.reset_output_buffer()
 
+    def reconnect(self) -> None:
+        """Close and reopen the serial connection with the same device/baud.
+
+        Recovers from a stale connection after device reboot.
+        """
+        self.close()
+        self.connect()
+
     def _ensure_open(self) -> serial.Serial:
         if not self.is_open:
             raise RuntimeError(
                 f"Not connected. Call connect('{self.device}', {self.baud}) first."
             )
         return self._connection  # type: ignore
+
+    def _check_prompt(self, buf: bytes) -> bool:
+        """Return True if any of the session's prompts appear at the tail of *buf*."""
+        stripped = buf.rstrip(b"\r\n")
+        for p in self._prompts:
+            if stripped.endswith(p):
+                return True
+        return False
 
     def close(self) -> None:
         """Close the serial connection if open."""
@@ -181,11 +214,35 @@ class SerialSession:
                 pass
             self._connection = None
 
-    def interrupt(self) -> None:
-        """Send Ctrl+C to interrupt a running command on the remote shell."""
+    def interrupt(self, timeout: Optional[float] = None) -> bool:
+        """Send Ctrl+C to interrupt a running command and wait for the prompt.
+
+        Returns True if a prompt was detected, False if timeout elapsed.
+        """
         ser = self._ensure_open()
         ser.write(b"\x03")
         ser.flush()
+
+        deadline = timeout or DEFAULT_TIMEOUT
+        start = time.monotonic()
+        buf = bytearray()
+
+        while True:
+            remaining = deadline - (time.monotonic() - start)
+            if remaining <= 0:
+                return False
+
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException:
+                return False
+
+            if chunk:
+                buf.extend(chunk)
+                if self._check_prompt(bytes(buf)):
+                    return True
+            else:
+                time.sleep(min(0.1, remaining))
 
     def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
         """Send *command* over serial and return its output.
@@ -209,6 +266,7 @@ class SerialSession:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
                 timed_out = True
+                self.interrupt(timeout=30)
                 break
 
             try:
@@ -223,7 +281,7 @@ class SerialSession:
 
             if chunk:
                 buf.extend(chunk)
-                if _prompt_detected(bytes(buf)):
+                if self._check_prompt(bytes(buf)):
                     break
             else:
                 time.sleep(min(0.1, remaining))
@@ -232,7 +290,7 @@ class SerialSession:
         clean = bytes(buf)
         clean = _strip_ansi(clean)
         clean = _strip_echo(clean, command)
-        clean = _strip_prompt(clean)
+        clean = _strip_prompt_instance(clean, self._prompts)
         return SerialResult(
             command=command,
             output=clean.decode(errors="replace"),
@@ -270,6 +328,7 @@ class SerialSession:
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
+                self.interrupt(timeout=30)
                 break
 
             try:
@@ -279,7 +338,7 @@ class SerialSession:
 
             if chunk:
                 buf.extend(chunk)
-                has_prompt = _prompt_detected(bytes(buf))
+                has_prompt = self._check_prompt(bytes(buf))
 
                 # Resolve echo skip length once
                 if echo_skip == 0:
@@ -290,7 +349,7 @@ class SerialSession:
                 start_pos = max(consumed, echo_skip)
                 new_data = bytes(buf[start_pos:])
                 if has_prompt:
-                    new_data = _strip_prompt(new_data)
+                    new_data = _strip_prompt_instance(new_data, self._prompts)
 
                 text = new_data.decode(errors="replace")
                 if filter_fn:
@@ -395,9 +454,17 @@ def parse(
     return _default_session.parse(command, pattern, timeout)
 
 
-def interrupt() -> None:
-    """Send Ctrl+C on the default connection to interrupt a running command."""
-    _default_session.interrupt()
+def interrupt(timeout: Optional[float] = None) -> bool:
+    """Send Ctrl+C on the default connection to interrupt a running command.
+
+    Returns True if a prompt was detected, False if timeout elapsed.
+    """
+    return _default_session.interrupt(timeout)
+
+
+def reconnect() -> None:
+    """Reopen the default serial connection after a device reboot."""
+    _default_session.reconnect()
 
 
 # ---------------------------------------------------------------------------
