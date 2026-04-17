@@ -26,6 +26,9 @@ sdev -p "cat /proc/meminfo" --parse "Mem.*"
 # Save defaults so you can omit -d and -b
 sdev set-default /dev/ttyUSB0 115200
 sdev -p "ls /proc/meminfo"
+
+# Send Ctrl+C to interrupt a running command (without -p)
+sdev --interrupt -d /dev/ttyUSB0 -b 115200
 ```
 
 ## Design Goals
@@ -54,17 +57,35 @@ session.connect()
 for chunk in session.stream("tail -f /var/log/syslog"):
     print(chunk, end="")
 
+# Streaming with line mode — only yields complete lines
+for line in session.stream("tail -f /var/log/syslog", line_mode=True):
+    process(line)
+
 # Parsing with regex filtering
 parsed = session.parse("cat /proc/meminfo", pattern=r"Mem.*")
 print(parsed.matched)
+
+# Wait for a specific output marker instead of shell prompt
+# Useful for benchmarks that print results then keep running
+result = session.cli("./mnn_perf -m model.mnn", end_flag="Frame rate:")
 
 # Interrupt a running command (sends Ctrl+C and waits for prompt)
 session.interrupt(timeout=5)
 
 # Recover from device reboot without creating a new session
 session.reconnect()
+```
 
-# Module-level convenience API
+### Thread safety
+
+Each `SerialSession` has an internal `threading.Lock`.  Only one `cli()`
+or `stream()` call can run at a time per session.  Concurrent callers
+will raise `RuntimeError` after 10s if the lock is held.  `interrupt()`
+does not acquire the lock — it remains the emergency escape hatch.
+
+### Module-level convenience API
+
+```python
 sdev.connect("/dev/ttyUSB0", 115200)
 result = sdev.cli("ls /proc/meminfo")
 sdev.disconnect()
