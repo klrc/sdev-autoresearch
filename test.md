@@ -10,13 +10,15 @@ This document defines the **test** agent’s responsibilities in the **adversari
 
 The serial device (default `/dev/ttyUSB0`) is **single-user** across both agents.
 
-| Agent | Allowed wall-clock time (each hour) |
-|--------|-------------------------------------|
-| **Dev** | Minute **0–29** (`:00`–`:29`) |
-| **Test** | Minute **30–59** (`:30`–`:59`) |
+Let `m` be the current **minute-of-hour** (`0–59`). **Dev** may use the serial when **`m % 10` is 0–4**; **test** when **`m % 10` is 5–9**. That is a repeating **5-minute dev / 5-minute test** cadence every ten minutes (e.g. `…:00`–`…:04` dev, `…:05`–`…:09` test, `…:10`–`…:14` dev, `…:15`–`…:19` test, …).
 
-- **Before** running any test that touches the serial device, confirm the current time is in **:30–:59**. If not, **wait** or reschedule; do not contend with dev.
-- **Assume** dev may be using the device in **:00–:29**; do not start serial-heavy runs in that window.
+| Agent | Condition (same every hour) |
+|--------|-----------------------------|
+| **Dev** | **`m % 10` ∈ {0,1,2,3,4}** |
+| **Test** | **`m % 10` ∈ {5,6,7,8,9}** |
+
+- **Before** any serial I/O, confirm **`m % 10` is 5–9**. If not, **wait** or reschedule; do not contend with dev.
+- **Assume** dev may use the device when **`m % 10` is 0–4**; do not start serial-heavy runs in those slices.
 
 ### Issue handoff
 

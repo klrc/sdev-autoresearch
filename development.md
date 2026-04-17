@@ -10,8 +10,8 @@ This experiment runs **two Claude Code CLI agents in adversarial collaboration**
    Before writing or changing code, check the latest issues from the test agent (see paths and format in `test.md`). Resolve or acknowledge each item before moving on.
 
 2. **Respect the serial-port time window (shared device)**  
-   **Dev may use the serial device only during minutes 0–29 of each clock hour** (e.g. `10:00`–`10:29`). **Do not** open or use `/dev/ttyUSB0` (or the configured device) during minutes 30–59 — that window is reserved for the test agent.  
-   If you are inside a long run that would cross into the test window, **stop using the serial** before `:30` or schedule work accordingly.
+   Use **minute-of-hour modulo 10**: let `m` be the current minute within the hour (`0–59`). **Dev** may use the serial only when **`m % 10` is 0–4** (e.g. `…:00`–`…:04`, `…:10`–`…:14`, `…:50`–`…:54`). **Test** uses **`m % 10` 5–9** (e.g. `…:05`–`…:09`, `…:15`–`…:19`, `…:55`–`…:59`). Same **5-minute dev / 5-minute test** pattern repeats every ten minutes all hour.  
+   **Do not** open or use `/dev/ttyUSB0` (or the configured device) when `m % 10` is **5–9**. If a serial operation would cross from **`m % 10 ≤ 4`** into **`m % 10 ≥ 5`**, **stop or yield before** that boundary (e.g. finish by `…:04` if you are in a dev slice ending at `…:04`).
 
 3. **Sync `main` before you implement**  
    At the start of a dev stint (and before cutting a **new** feature branch), run:  
