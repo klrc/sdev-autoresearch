@@ -180,5 +180,73 @@ class TestRunOneShot(unittest.TestCase):
             self.assertFalse(result.timed_out)
 
 
+class TestCLIEntrypoint(unittest.TestCase):
+    """Test __main__.py argument parsing and dispatch."""
+
+    def test_stream_mode(self):
+        with patch("sdev.serial.Serial") as mock_cls:
+            mock_ser = mock_cls.return_value
+            mock_ser.is_open = True
+            mock_ser.read.side_effect = [b"chunk1\n", b"chunk2\n# ", b""]
+
+            from sdev.__main__ import main
+            import io
+            captured = io.StringIO()
+            with patch("sys.argv", ["sdev", "-p", "tail -f", "--stream",
+                                     "-d", "/dev/ttyS0", "-b", "9600"]), \
+                 patch("sys.stdout", captured):
+                main()
+            mock_cls.assert_called_once_with("/dev/ttyS0", 9600, timeout=0.1)
+            mock_ser.close.assert_called_once()
+            self.assertIn("chunk1", captured.getvalue())
+            self.assertIn("chunk2", captured.getvalue())
+
+    def test_parse_mode(self):
+        with patch("sdev.serial.Serial") as mock_cls:
+            mock_ser = mock_cls.return_value
+            mock_ser.is_open = True
+            mock_ser.read.side_effect = [b"MemTotal: 1000\nMemFree: 500\n# ", b""]
+
+            from sdev.__main__ import main
+            import io
+            captured = io.StringIO()
+            with patch("sys.argv", ["sdev", "-p", "cat /proc/meminfo",
+                                     "--parse", "MemTotal",
+                                     "-d", "/dev/ttyS0", "-b", "9600"]), \
+                 patch("sys.stdout", captured):
+                main()
+            self.assertIn("MemTotal: 1000", captured.getvalue())
+            self.assertNotIn("MemFree: 500", captured.getvalue())
+
+    def test_parse_no_match(self):
+        with patch("sdev.serial.Serial") as mock_cls:
+            mock_ser = mock_cls.return_value
+            mock_ser.is_open = True
+            mock_ser.read.side_effect = [b"hello\n# ", b""]
+
+            from sdev.__main__ import main
+            with patch("sys.argv", ["sdev", "-p", "echo hello",
+                                     "--parse", "NOTFOUND",
+                                     "-d", "/dev/ttyS0", "-b", "9600"]):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+                self.assertEqual(cm.exception.code, 3)
+
+    def test_normal_mode(self):
+        with patch("sdev.serial.Serial") as mock_cls:
+            mock_ser = mock_cls.return_value
+            mock_ser.is_open = True
+            mock_ser.read.side_effect = [b"output\n# ", b""]
+
+            from sdev.__main__ import main
+            import io
+            captured = io.StringIO()
+            with patch("sys.argv", ["sdev", "-p", "echo output",
+                                     "-d", "/dev/ttyS0", "-b", "9600"]), \
+                 patch("sys.stdout", captured):
+                main()
+            self.assertIn("output", captured.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
