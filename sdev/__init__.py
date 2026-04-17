@@ -325,8 +325,8 @@ def cli(command: str, timeout: Optional[float] = None) -> SerialResult:
 def run(device: str, baud: int, command: str, timeout: Optional[float] = None) -> SerialResult:
     """Open connection, run *command*, close. One-shot helper."""
     session = SerialSession(device, baud)
-    session.connect()
     try:
+        session.connect()
         return session.cli(command, timeout)
     finally:
         session.close()
