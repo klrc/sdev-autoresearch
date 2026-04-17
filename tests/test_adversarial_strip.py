@@ -24,15 +24,19 @@ class TestStripPromptEdgeCases(unittest.TestCase):
         result = sdev._strip_prompt(b"output# ")
         self.assertEqual(result, b"output")
 
-    def test_compound_prompt_longer_match_first(self):
-        """Compound prompts like ~# should be stripped as a whole, not leaving '~'.
+    def test_compound_prompt_stripped_whole(self):
+        """Compound prompts like ~# should be stripped as a whole.
 
-        BUG: _strip_prompt checks '# ' before '~# ' in PROMPTS order,
-        so '~# ' is partially stripped, leaving a dangling '~'.
+        FIXED in commit fa61e54: PROMPTS reordered to check compound prompts first.
         """
         result = sdev._strip_prompt(b"out~# ")
-        # Expected: b"out". Actual (buggy): b"out~" because '# ' matches first.
-        self.assertEqual(result, b"out~")
+        self.assertEqual(result, b"out")
+
+    def test_all_prompt_variants_stripped(self):
+        """Every prompt in PROMPTS should be fully stripped."""
+        for p in sdev.PROMPTS:
+            result = sdev._strip_prompt(b"out" + p)
+            self.assertEqual(result, b"out", f"Failed for prompt {p!r}")
 
 
 class TestStripEchoEdgeCases(unittest.TestCase):
