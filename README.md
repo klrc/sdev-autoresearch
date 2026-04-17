@@ -20,8 +20,17 @@ sdev -p "tail -f /var/log/syslog" --stream
 # Stream with server-side regex filter
 sdev -p "tail -f /var/log/syslog" --stream --grep "ERROR"
 
+# Stream with complete-line output only
+sdev -p "dmesg" --stream --line-mode
+
 # Parse output with regex
 sdev -p "cat /proc/meminfo" --parse "Mem.*"
+
+# Wait for a specific output marker instead of shell prompt
+sdev -p "./mnn_perf -m model.mnn" --end-flag "Frame rate:"
+
+# Clear stray processes before running a command
+sdev -p "uptime" --doctor
 
 # Save defaults so you can omit -d and -b
 sdev set-default /dev/ttyUSB0 115200
@@ -29,7 +38,28 @@ sdev -p "ls /proc/meminfo"
 
 # Send Ctrl+C to interrupt a running command (without -p)
 sdev --interrupt -d /dev/ttyUSB0 -b 115200
+
+# Custom prompt patterns for non-standard shells
+sdev -p "ls" --prompt "[root@board]# " --prompt "admin@box> "
 ```
+
+### CLI options
+
+| Flag | Description |
+|------|-------------|
+| `-p, --command` | Command to execute |
+| `-d, --device` | Serial device path |
+| `-b, --baud` | Baud rate |
+| `-t, --timeout` | Timeout in seconds (default: 300) |
+| `--stream` | Incremental output instead of buffered |
+| `--grep REGEX` | Filter `--stream` lines by regex |
+| `--line-mode` | Only yield complete lines in `--stream` |
+| `--parse REGEX` | Show only matching lines |
+| `--end-flag STR` | Stop when this string appears in output |
+| `--doctor` | Clear foreground processes before command |
+| `--prompt PATTERN` | Custom shell prompt pattern (repeatable) |
+| `--interrupt` | Send Ctrl+C and wait for prompt |
+| `set-default` | Persist device/baud as defaults |
 
 ## Design Goals
 
@@ -61,6 +91,10 @@ for chunk in session.stream("tail -f /var/log/syslog"):
 for line in session.stream("tail -f /var/log/syslog", line_mode=True):
     process(line)
 
+# Streaming with server-side filter
+for chunk in session.stream("tail -f /var/log/syslog", filter_fn=lambda t: t.upper()):
+    print(chunk, end="")
+
 # Parsing with regex filtering
 parsed = session.parse("cat /proc/meminfo", pattern=r"Mem.*")
 print(parsed.matched)
@@ -72,8 +106,18 @@ result = session.cli("./mnn_perf -m model.mnn", end_flag="Frame rate:")
 # Interrupt a running command (sends Ctrl+C and waits for prompt)
 session.interrupt(timeout=5)
 
+# Clear stray foreground processes and get a clean prompt
+session.doctor()
+
+# Wait until no data arrives for N seconds (boot completion)
+session.wait_for_silence(timeout=1.5)
+
 # Recover from device reboot without creating a new session
 session.reconnect()
+
+# Monitor CPU/memory during long operations
+usage = sdev.resource_usage()
+print(f"RSS: {usage['memory_mb']} MB, CPU: {usage['cpu_percent']}%")
 ```
 
 ### Thread safety

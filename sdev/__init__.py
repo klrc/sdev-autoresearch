@@ -523,10 +523,11 @@ class SerialSession:
                         if has_prompt:
                             break
                         if len(buf) > MAX_BUFFER_SIZE:
+                            old_consumed = consumed
                             remaining_buf = buf[consumed:]
                             buf.clear()
                             buf.extend(remaining_buf)
-                            echo_skip = max(0, echo_skip - consumed)
+                            echo_skip = max(0, echo_skip - old_consumed)
                             consumed = 0
                         continue
 
@@ -552,10 +553,11 @@ class SerialSession:
                     break
 
                 if len(buf) > MAX_BUFFER_SIZE:
+                    old_consumed = consumed
                     remaining_buf = buf[consumed:]
                     buf.clear()
                     buf.extend(remaining_buf)
-                    echo_skip = max(0, echo_skip - consumed)
+                    echo_skip = max(0, echo_skip - old_consumed)
                     consumed = 0
             else:
                 time.sleep(min(0.1, remaining))
@@ -610,9 +612,13 @@ def ensure_connection() -> serial.Serial:
     return _default_session._ensure_open()
 
 
-def cli(command: str, timeout: Optional[float] = None) -> SerialResult:
+def cli(
+    command: str,
+    timeout: Optional[float] = None,
+    end_flag: Optional[str] = None,
+) -> SerialResult:
     """Send *command* over the default connection and return output."""
-    return _default_session.cli(command, timeout)
+    return _default_session.cli(command, timeout, end_flag)
 
 
 def run(device: str, baud: int, command: str, timeout: Optional[float] = None) -> SerialResult:
@@ -630,9 +636,13 @@ def stream(
     timeout: Optional[float] = None,
     chunk_size: int = 256,
     filter_fn: Optional[Callable[[str], str]] = None,
+    line_mode: bool = False,
+    end_flag: Optional[str] = None,
 ) -> Iterator[str]:
     """Yield output from the default connection incrementally."""
-    yield from _default_session.stream(command, timeout, chunk_size, filter_fn)
+    yield from _default_session.stream(
+        command, timeout, chunk_size, filter_fn, line_mode, end_flag,
+    )
 
 
 def parse(
