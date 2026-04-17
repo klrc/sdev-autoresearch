@@ -248,8 +248,8 @@ class SerialSession:
                 # long-running commands (e.g. tail -f).
                 if consumed > 65536:
                     buf = buf[consumed:]
+                    echo_skip = 0
                     consumed = 0
-                    echo_skip = max(0, echo_skip - consumed)
             else:
                 time.sleep(min(0.1, remaining))
 
