@@ -4,6 +4,8 @@
 Usage::
 
     sdev -p "ls /proc/meminfo" -d /dev/ttyUSB0 -b 115200
+    sdev -p "tail -f /var/log/syslog" --stream -d /dev/ttyUSB0
+    sdev -p "cat /proc/meminfo" --parse "Mem(Available|Total)" -d /dev/ttyUSB0
     sdev set-default /dev/ttyUSB0 115200
     sdev -p "ls /proc/meminfo"          # uses saved defaults
 """
@@ -32,6 +34,16 @@ def main() -> None:
         type=int,
         help="Baud rate (default: saved default or 115200).",
     )
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        help="Stream output incrementally instead of buffering until prompt.",
+    )
+    parser.add_argument(
+        "--parse",
+        metavar="REGEX",
+        help="Parse output and show only lines matching the regex.",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     sub.add_parser(
@@ -59,16 +71,29 @@ def main() -> None:
     device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
     baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
 
-    result = sdev.run(device, baud, args.command)
-
-    if result.output:
-        sys.stdout.write(result.output)
-    if result.timed_out:
-        print(
-            f"\n[sdev] command timed out after {result.elapsed:.1f}s",
-            file=sys.stderr,
-        )
-        sys.exit(2)
+    with sdev.SerialSession(device, baud) as sess:
+        if args.stream:
+            for chunk in sess.stream(args.command):
+                sys.stdout.write(chunk)
+            sys.stdout.flush()
+        elif args.parse:
+            result = sess.parse(args.command, pattern=args.parse)
+            if result.matched:
+                for line in result.matched:
+                    print(line)
+            else:
+                print("(no matches)", file=sys.stderr)
+                sys.exit(3)
+        else:
+            result = sess.cli(args.command)
+            if result.output:
+                sys.stdout.write(result.output)
+            if result.timed_out:
+                print(
+                    f"\n[sdev] command timed out after {result.elapsed:.1f}s",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
 
 if __name__ == "__main__":
