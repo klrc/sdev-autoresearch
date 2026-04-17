@@ -2,7 +2,7 @@
 
 This document defines the **test** agent’s responsibilities in the **adversarial pair** with the dev agent (`development.md`). The test agent should run in a **separate git worktree** from dev to avoid concurrent edits to the same tree.
 
-**Serial time-sharing (same rule as `development.md`):** let `m` be the minute-of-hour (`0–59`). **Test** may use the serial **only** when **`m % 10` is 5–9**; **dev** owns **`m % 10` 0–4**. Do not touch the serial outside your slice — full wording in [Serial-port time window](#serial-port-time-window-mandatory) below.
+**Serial time-sharing (same rule as `development.md`):** **test** uses the serial **`:30`–`:59`** each hour; **dev** uses **`:00`–`:29`**. Details below.
 
 ---
 
@@ -12,21 +12,23 @@ This document defines the **test** agent’s responsibilities in the **adversari
 
 The serial device (default `/dev/ttyUSB0`) is **single-user** across both agents.
 
-Let `m` be the current **minute-of-hour** (`0–59`). **Dev** may use the serial when **`m % 10` is 0–4**; **test** when **`m % 10` is 5–9**. That is a repeating **5-minute dev / 5-minute test** cadence every ten minutes (e.g. `…:00`–`…:04` dev, `…:05`–`…:09` test, `…:10`–`…:14` dev, `…:15`–`…:19` test, …).
+| Agent | Serial window (each clock hour, local time) |
+|--------|-----------------------------------------------|
+| **Dev** | **`:00`–`:29`** |
+| **Test** | **`:30`–`:59`** |
 
-| Agent | Condition (same every hour) |
-|--------|-----------------------------|
-| **Dev** | **`m % 10` ∈ {0,1,2,3,4}** |
-| **Test** | **`m % 10` ∈ {5,6,7,8,9}** |
+- **Before** any serial I/O, confirm the minute is **`:30`–`:59`**. Otherwise **wait**; do not contend with dev.
+- **Assume** dev may use the device **`:00`–`:29`**.
 
-- **Before** any serial I/O, confirm **`m % 10` is 5–9**. If not, **wait** or reschedule; do not contend with dev.
-- **Assume** dev may use the device when **`m % 10` is 0–4**; do not start serial-heavy runs in those slices.
+### GitHub issue handoff
 
-### Issue handoff
+**All** test findings for dev must go through **GitHub Issues** on this repository (`gh issue …`), **not** a local `ISSUES.md` / `.handoff/` markdown file.
 
-When tests fail or the PR is not acceptable, write findings to the **issue file** agreed with the project (default: **`.handoff/ISSUES.md`** at the repo root of your worktree). Use a stable structure so dev can parse it quickly (see template below).
+- When tests fail or the PR is not acceptable: **`gh issue create`** with a clear title and body (see [GitHub issue body template](#github-issue-body-template) below). Prefer the label **`test-feedback`** on the issue if it exists on the repo (create the label once under GitHub **Issues → Labels** if missing). Alternatively, prefix the title with **`[test]`** so dev can filter (`gh issue list --state open --search "[test]" in:title` or equivalent).
+- Reference the **PR number** and branch name in the issue body so dev can correlate.
+- When a problem is fixed and re-validated, **close** the issue with `gh issue close <number>` or add a closing comment; avoid leaving stale failures open.
 
-Dev is required to **read this file before development** (`development.md`).
+Dev is required to **triage those GitHub Issues before development** (`development.md`).
 
 ---
 
@@ -55,7 +57,7 @@ The project builds a **minimal, non-interactive** tool to drive a **Linux shell 
 - **Honest handling** of serial constraints: buffering, prompts, long-running / non-exiting commands, flaky devices.
 - **Clean architecture**: readable, not over-abstracted; changes should stay easy to follow for future MCP/skill integration **without** implementing those integrations in-repo.
 
-Deviations (e.g. hidden globals, opaque magic, “temporary” hacks that become permanent) should be flagged in issues.
+Deviations (e.g. hidden globals, opaque magic, “temporary” hacks that become permanent) should be flagged in **GitHub Issues**.
 
 ---
 
@@ -73,25 +75,26 @@ Deviations (e.g. hidden globals, opaque magic, “temporary” hacks that become
 
 ### 3. Evaluate
 
-Apply the four objectives above. Capture logs (trimmed) and file/line references in `.handoff/ISSUES.md` when something fails.
+Apply the four objectives above. When something fails, capture **trimmed** logs, commands, and file/line references in the **GitHub issue body** (or follow-up comments).
 
 ### 4. Outcome
 
-- **Tests pass** and the PR is **reasonable** (scope, description, design alignment): **merge** the PR via your agreed mechanism (e.g. `gh pr merge` with suitable strategy), then note merge in a short line in `.handoff/ISSUES.md` or clear resolved sections.
-- **Tests fail** or the PR is **not** reasonable: **do not merge**. Update **`.handoff/ISSUES.md`** with actionable issues for dev.
+- **Tests pass** and the PR is **reasonable** (scope, description, design alignment): **merge** the PR (e.g. `gh pr merge` with a suitable strategy). Optionally comment on or **close** any open **`test-feedback` / `[test]`** issues that this merge resolves.
+- **Tests fail** or the PR is **not** reasonable: **do not merge**. Open or update **GitHub Issues** with actionable findings for dev (`gh issue create` / `gh issue comment`).
 
 ---
 
-## Issue file template (`.handoff/ISSUES.md`)
+## GitHub issue body template
+
+Use this structure in **`gh issue create --body`** (or paste into the web form). Replace placeholders.
 
 ```markdown
-# Test handoff — updated <ISO-8601 timestamp>
-
-## Status
-FAIL | PASS (merge pending) | MERGED
-
 ## PR
-Link or number: 
+- Number / URL: 
+- Branch: 
+
+## Verdict
+FAIL | PASS (merge pending)
 
 ## Failures (commands, assertions, serial)
 - 
@@ -104,9 +107,12 @@ Link or number:
 
 ## Suggestions for dev
 - 
+
+## Logs
+- (trimmed excerpts only; link paths or Gist for huge logs)
 ```
 
-Create `.handoff/` if missing. Keep the file concise; attach large logs by path reference, not full paste.
+Keep bodies readable; do not paste multi-megabyte logs inline.
 
 ---
 
@@ -115,7 +121,7 @@ Create `.handoff/` if missing. Keep the file concise; attach large logs by path 
 - `development.md`
 - `test.md`
 
-(You may append timestamped notes under `.handoff/` if the team agrees; the two guides above stay immutable unless the human updates them.)
+(For human-only notes, use GitHub Issues/Discussions or local scratch space **outside** this repo if needed; the two guides above stay immutable unless the human updates them.)
 
 ---
 

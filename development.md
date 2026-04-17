@@ -6,18 +6,18 @@ This experiment runs **two Claude Code CLI agents in adversarial collaboration**
 
 ## Before you start (every development session)
 
-1. **Read outstanding test feedback**  
-   Before writing or changing code, check the latest issues from the test agent (see paths and format in `test.md`). Resolve or acknowledge each item before moving on.
+1. **Read outstanding test feedback (GitHub Issues)**  
+   Before writing or changing code, review **open GitHub Issues** created by the test workflow for this repository. Use the GitHub CLI, e.g. `gh issue list --state open` (and the filters or labels described in `test.md`). **Do not** rely on a local markdown handoff file for test feedback. Triage each relevant issue: fix, comment with evidence, or close with `gh issue close <number>` when resolved. Do not ignore open issues from the test agent.
 
 2. **Respect the serial-port time window (shared device)**  
-   Use **minute-of-hour modulo 10**: let `m` be the current minute within the hour (`0–59`). **Dev** may use the serial only when **`m % 10` is 0–4** (e.g. `…:00`–`…:04`, `…:10`–`…:14`, `…:50`–`…:54`). **Test** uses **`m % 10` 5–9** (e.g. `…:05`–`…:09`, `…:15`–`…:19`, `…:55`–`…:59`). Same **5-minute dev / 5-minute test** pattern repeats every ten minutes all hour.  
-   **Do not** open or use `/dev/ttyUSB0` (or the configured device) when `m % 10` is **5–9**. If a serial operation would cross from **`m % 10 ≤ 4`** into **`m % 10 ≥ 5`**, **stop or yield before** that boundary (e.g. finish by `…:04` if you are in a dev slice ending at `…:04`).
+   Split each clock hour in half: **dev** may use the serial from **`:00` through `:29`**; **test** from **`:30` through `:59`**.  
+   **Do not** use `/dev/ttyUSB0` (or the configured device) during **`:30`–`:59`**. If a serial run might cross **`:29` → `:30`**, stop or finish before **`:30`**.
 
 3. **Sync `main` before you implement**  
    At the start of a dev stint (and before cutting a **new** feature branch), run:  
    `git fetch origin && git checkout main && git pull origin main`  
    so you have the latest `development.md` / `test.md`, merged fixes, and any updates landed on `main`. Then `git checkout <your-feature-branch>` and **merge `main` into it** (or **rebase** onto `main` if the human asked for a linear history).  
-   You generally **do not** “pull a rejected branch” as if it were canonical: if a PR was **closed without merge**, treat **`main` as source of truth**—read the PR / issue / `.handoff/ISSUES.md` for why, then re-sync your work from up-to-date `main` (new branch from `main` or rebase) unless the human says otherwise.
+   You generally **do not** “pull a rejected branch” as if it were canonical: if a PR was **closed without merge**, treat **`main` as source of truth**—read the **PR thread and linked GitHub Issues** (`gh pr view`, `gh issue list`) for why, then re-sync your work from up-to-date `main` (new branch from `main` or rebase) unless the human says otherwise.
 
 ---
 
