@@ -46,17 +46,17 @@ def main() -> None:
     )
 
     sub = parser.add_subparsers(dest="subcommand")
-    sub.add_parser(
+    set_parser = sub.add_parser(
         "set-default",
         help="Persist device/baud as the default for future invocations.",
     )
+    set_parser.add_argument("device", help="Serial device path to save as default.")
+    set_parser.add_argument("baud", type=int, help="Baud rate to save as default.")
 
     args = parser.parse_args()
 
     # --- set-default subcommand ---
     if args.subcommand == "set-default":
-        if args.device is None or args.baud is None:
-            parser.error("set-default requires -d DEVICE and -b BAUD")
         sdev.save_default(args.device, args.baud)
         print(f"Default saved: {args.device} @ {args.baud}")
         return
