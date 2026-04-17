@@ -104,7 +104,7 @@ class TestCLIEntrypointTimeout(unittest.TestCase):
                  unittest.mock.patch("sdev.serial.Serial", return_value=mock_ser):
                 main()
 
-            mock_sess.cli.assert_called_once_with("echo ok", timeout=0.5)
+            mock_sess.cli.assert_called_once_with("echo ok", timeout=0.5, end_flag=None)
 
     def test_stream_mode_timeout(self):
         """Stream mode passes timeout to stream()."""
@@ -132,7 +132,7 @@ class TestCLIEntrypointTimeout(unittest.TestCase):
                 main()
 
             mock_sess.stream.assert_called_once_with(
-                "echo ok", timeout=10.0, filter_fn=None)
+                "echo ok", timeout=10.0, filter_fn=None, line_mode=False, end_flag=None)
 
     def test_parse_mode_timeout(self):
         """Parse mode passes timeout to parse()."""
