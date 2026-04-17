@@ -18,7 +18,6 @@ CLI::
     sdev -p "ls /proc/meminfo"          # uses saved defaults
 """
 
-import os
 import time
 import re
 import serial
@@ -65,7 +64,25 @@ class ParseResult:
 # Prompt detection
 # ---------------------------------------------------------------------------
 
-PROMPTS = [b"# ", b"$ ", b"> ", b"~# ", b"~$ "]
+PROMPTS = [b"~# ", b"~$ ", b"# ", b"$ ", b"> "]
+
+
+def _strip_prompt(buf: bytes) -> bytes:
+    """Remove a trailing shell prompt from *buf*, if present."""
+    stripped = buf.rstrip(b"\r\n")
+    for p in PROMPTS:
+        if stripped.endswith(p):
+            return stripped[: -len(p)]
+    return buf
+
+
+def _strip_echo(buf: bytes, command: str) -> bytes:
+    """Remove the echoed command text from the start of *buf*."""
+    cmd = command.encode()
+    for ending in (b"\r\n", b"\n", b"\r"):
+        if buf.startswith(cmd + ending):
+            return buf[len(cmd) + len(ending):]
+    return buf
 
 
 def _prompt_detected(buf: bytes) -> bool:
@@ -159,9 +176,12 @@ class SerialSession:
                 time.sleep(min(0.1, remaining))
 
         elapsed = time.monotonic() - start
+        clean = bytes(buf)
+        clean = _strip_echo(clean, command)
+        clean = _strip_prompt(clean)
         return SerialResult(
             command=command,
-            output=bytes(buf).decode(errors="replace"),
+            output=clean.decode(errors="replace"),
             timed_out=timed_out,
             elapsed=round(elapsed, 2),
         )
@@ -175,8 +195,8 @@ class SerialSession:
     ) -> Iterator[str]:
         """Yield output incrementally as it arrives.
 
-        Suitable for long-running commands or large output where buffering
-        the entire transcript in memory is impractical.
+        Echoed command text is stripped from the first chunk(s).
+        Trailing prompt is not yielded.
 
         Yields decoded string chunks.  Stops when *timeout* elapses.
 
@@ -190,6 +210,9 @@ class SerialSession:
         ser.write((command + "\n").encode())
         ser.flush()
 
+        buf = bytearray()
+        consumed = 0  # bytes of buf already processed (echo + yielded)
+        echo_skip = 0  # leading bytes to skip (echoed command)
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
@@ -197,11 +220,28 @@ class SerialSession:
 
             chunk = ser.read(chunk_size)
             if chunk:
-                text = chunk.decode(errors="replace")
+                buf.extend(chunk)
+                has_prompt = _prompt_detected(bytes(buf))
+
+                # Resolve echo skip length once
+                if echo_skip == 0:
+                    clean = _strip_echo(bytes(buf), command)
+                    echo_skip = len(buf) - len(clean)
+
+                # New data starts after what we've already consumed and the echo
+                start_pos = max(consumed, echo_skip)
+                new_data = bytes(buf[start_pos:])
+                if has_prompt:
+                    new_data = _strip_prompt(new_data)
+
+                text = new_data.decode(errors="replace")
                 if filter_fn:
                     text = filter_fn(text)
-                yield text
-                if _prompt_detected(chunk):
+                if text:
+                    yield text
+
+                consumed = len(buf)
+                if has_prompt:
                     break
             else:
                 time.sleep(min(0.1, remaining))
