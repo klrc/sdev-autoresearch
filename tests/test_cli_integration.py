@@ -324,8 +324,19 @@ class TestModuleLevelAPI(unittest.TestCase):
         with patch.object(sdev, "_default_session", mock_sess):
             result = sdev.cli("echo x", timeout=5)
 
-        mock_sess.cli.assert_called_once_with("echo x", 5)
+        mock_sess.cli.assert_called_once_with("echo x", 5, None)
         self.assertEqual(result.output, "x\n")
+
+    def test_module_cli_passes_end_flag(self):
+        """sdev.cli() should pass end_flag to default session."""
+        mock_sess = MagicMock()
+        mock_sess.cli.return_value = sdev.SerialResult(
+            "bench", "Frame rate: 60\n", False, 1.0)
+
+        with patch.object(sdev, "_default_session", mock_sess):
+            sdev.cli("bench", end_flag="Frame rate:")
+
+        mock_sess.cli.assert_called_once_with("bench", None, "Frame rate:")
 
     def test_module_connect_delegates(self):
         """sdev.connect() should call default session's connect()."""
@@ -350,7 +361,8 @@ class TestModuleLevelAPI(unittest.TestCase):
             chunks = list(sdev.stream("tail -f log"))
 
         self.assertEqual(chunks, ["a\n", "b\n"])
-        mock_sess.stream.assert_called_once()
+        mock_sess.stream.assert_called_once_with(
+            "tail -f log", None, 256, None, False, None)
 
     def test_module_parse_delegates(self):
         """sdev.parse() should call default session's parse()."""

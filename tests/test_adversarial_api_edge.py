@@ -55,14 +55,14 @@ class TestModuleLevelAPIDelegation(unittest.TestCase):
         with patch.object(sdev, "_default_session") as mock_sess:
             mock_sess.cli.return_value = mock_result
             result = sdev.cli("echo hi")
-            mock_sess.cli.assert_called_once_with("echo hi", None)
+            mock_sess.cli.assert_called_once_with("echo hi", None, None)
             self.assertEqual(result.output, "hi\n")
 
     def test_module_stream_delegates(self):
         with patch.object(sdev, "_default_session") as mock_sess:
             mock_sess.stream.return_value = iter(["a", "b"])
             chunks = list(sdev.stream("echo ab"))
-            mock_sess.stream.assert_called_once_with("echo ab", None, 256, None)
+            mock_sess.stream.assert_called_once_with("echo ab", None, 256, None, False, None)
             self.assertEqual(chunks, ["a", "b"])
 
     def test_module_interrupt_delegates(self):
