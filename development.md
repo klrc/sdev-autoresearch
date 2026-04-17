@@ -64,7 +64,16 @@ sdev set-default /dev/ttyUSB0 115200
 sdev -p "ls /proc/meminfo"
 ```
 
-Keep interfaces as simple and honest as possible; avoid flashy features. Priorities: **stability**, **simplicity**, **predictability**, and **robust handling of weird real-world serial behavior**.
+Keep interfaces as simple and honest as possible; avoid flashy features. Priorities: **stability**, **simplicity**, **predictability**, **resource efficiency (CPU and memory)**, and **robust handling of weird real-world serial behavior**.
+
+### CPU and memory monitoring (primary goal)
+
+During operation we observed **spikes of extremely high CPU usage** that can crash the host system. This is now a **first-class requirement**, not an afterthought:
+
+- **CPU**: No loop, poll, or busy-wait path may consume sustained high CPU. Use blocking I/O, sleep/backoff, or OS-level primitives (`select`, `epoll`, `threading.Event`) instead of spin loops.
+- **Memory**: Streaming and buffering must not grow unbounded. Cap transcript buffers, release unused data, and avoid loading entire logs into memory.
+- **Self-monitoring**: During development and self-test, check CPU and memory behavior under long-running or stuck serial sessions (e.g. `top`, infinite loops, disconnected device). If a command causes sustained >80% single-core usage for more than a few seconds, that is a **bug** to fix before landing.
+- **Measurement**: When adding features that touch read/write loops, prompt detection, or streaming, include a quick CPU/memory sanity check (e.g. `ps -p $$ -o %cpu,%mem` or `time` + `top` snapshot) in self-test.
 
 While building, stay aware of serial realities: limited buffers (read promptly / buffer?), prompt detection, programs that never exit on their own (e.g. `top`), etc. These are examples — expect more edge cases in practice.
 
