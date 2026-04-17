@@ -70,6 +70,21 @@ def main() -> None:
         help="Send Ctrl+C to interrupt a running command on the serial line "
              "and wait for the prompt. Use without -p.",
     )
+    parser.add_argument(
+        "--end-flag",
+        metavar="MARKER",
+        help="Stop waiting for output when this string appears (instead of shell prompt).",
+    )
+    parser.add_argument(
+        "--line-mode",
+        action="store_true",
+        help="During --stream, yield complete lines only (buffer partial lines).",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Clear stray foreground processes and drain garbage before running a command.",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -112,6 +127,9 @@ def main() -> None:
     prompt_bytes = [p.encode() for p in args.prompts] if args.prompts else None
 
     with sdev.SerialSession(device, baud, prompts=prompt_bytes) as sess:
+        if args.doctor:
+            sess.doctor()
+
         if args.stream:
             if args.grep:
                 _regex = re.compile(args.grep)
@@ -128,7 +146,13 @@ def main() -> None:
             else:
                 filter_fn = None
 
-            for chunk in sess.stream(args.command, timeout=args.timeout, filter_fn=filter_fn):
+            for chunk in sess.stream(
+                args.command,
+                timeout=args.timeout,
+                filter_fn=filter_fn,
+                line_mode=args.line_mode,
+                end_flag=args.end_flag,
+            ):
                 sys.stdout.write(chunk)
             sys.stdout.flush()
         elif args.parse:
@@ -140,7 +164,7 @@ def main() -> None:
                 print("(no matches)", file=sys.stderr)
                 sys.exit(3)
         else:
-            result = sess.cli(args.command, timeout=args.timeout)
+            result = sess.cli(args.command, timeout=args.timeout, end_flag=args.end_flag)
             if result.output:
                 sys.stdout.write(result.output)
             if result.timed_out:
