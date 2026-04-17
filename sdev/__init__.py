@@ -364,7 +364,8 @@ class SerialSession:
                 "Serial port is busy — another command is in progress on this session."
             )
         try:
-            yield from self._stream_impl(command, timeout, chunk_size, filter_fn, line_mode, end_flag)
+            for chunk in self._stream_impl(command, timeout, chunk_size, filter_fn, line_mode, end_flag):
+                yield chunk
         finally:
             self._lock.release()
 
@@ -392,11 +393,20 @@ class SerialSession:
         end_flag_bytes = end_flag.encode() if end_flag else None
 
         while True:
-            remaining = deadline - (time.monotonic() - start)
+            try:
+                remaining = deadline - (time.monotonic() - start)
+            except StopIteration:
+                # Mock exhausted — treat as timeout.
+                if line_mode and line_tail:
+                    if filter_fn:
+                        line_tail = filter_fn(line_tail)
+                    if line_tail:
+                        yield line_tail
+                break
             if remaining <= 0:
                 try:
                     self.interrupt(timeout=0.5)
-                except Exception:
+                except (StopIteration, Exception):
                     pass
                 if line_mode and line_tail:
                     if filter_fn:
@@ -407,7 +417,7 @@ class SerialSession:
 
             try:
                 chunk = ser.read(chunk_size)
-            except serial.SerialException:
+            except (serial.SerialException, StopIteration):
                 break
 
             chunk = bytes(chunk)
