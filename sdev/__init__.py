@@ -64,7 +64,7 @@ class ParseResult:
 # Prompt detection
 # ---------------------------------------------------------------------------
 
-PROMPTS = [b"# ", b"$ ", b"> ", b"~# ", b"~$ "]
+PROMPTS = [b"~# ", b"~$ ", b"# ", b"$ ", b"> "]
 
 
 def _strip_prompt(buf: bytes) -> bytes:
