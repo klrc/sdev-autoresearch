@@ -266,7 +266,9 @@ class SerialSession:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
                 timed_out = True
-                self.interrupt(timeout=30)
+                # Interrupt is a fire-and-forget: very short timeout so we
+                # don't eat into the caller's elapsed budget.
+                self.interrupt(timeout=0.5)
                 break
 
             try:
@@ -328,7 +330,7 @@ class SerialSession:
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
-                self.interrupt(timeout=30)
+                self.interrupt(timeout=0.5)
                 break
 
             try:
