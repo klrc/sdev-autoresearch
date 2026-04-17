@@ -41,6 +41,7 @@ __all__ = [
     "run",
     "stream",
     "parse",
+    "interrupt",
     "save_default",
     "load_defaults",
     "DEFAULT_TIMEOUT",
@@ -171,6 +172,12 @@ class SerialSession:
             except Exception:
                 pass
             self._connection = None
+
+    def interrupt(self) -> None:
+        """Send Ctrl+C to interrupt a running command on the remote shell."""
+        ser = self._ensure_open()
+        ser.write(b"\x03")
+        ser.flush()
 
     def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
         """Send *command* over serial and return its output.
@@ -377,6 +384,11 @@ def parse(
 ) -> ParseResult:
     """Run *command* on the default connection and return parsed output."""
     return _default_session.parse(command, pattern, timeout)
+
+
+def interrupt() -> None:
+    """Send Ctrl+C on the default connection to interrupt a running command."""
+    _default_session.interrupt()
 
 
 # ---------------------------------------------------------------------------
