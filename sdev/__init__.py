@@ -124,7 +124,11 @@ class SerialSession:
                 pass
             self._connection = None
 
-        self._connection = serial.Serial(self.device, self.baud, timeout=0.1)
+        try:
+            self._connection = serial.Serial(self.device, self.baud, timeout=0.1)
+        except serial.SerialException as exc:
+            self._connection = None
+            raise RuntimeError(f"Cannot open {self.device}: {exc}") from exc
         time.sleep(0.5)
         self._connection.reset_input_buffer()
         self._connection.reset_output_buffer()
@@ -149,6 +153,8 @@ class SerialSession:
         """Send *command* over serial and return its output.
 
         Waits until a shell prompt reappears or *timeout* seconds elapse.
+        If the serial connection drops, returns a result with
+        ``timed_out=True`` and the exception text in ``output``.
         """
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
@@ -167,7 +173,16 @@ class SerialSession:
                 timed_out = True
                 break
 
-            chunk = ser.read(4096)
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException as exc:
+                return SerialResult(
+                    command=command,
+                    output=f"[sdev] serial error: {exc}",
+                    timed_out=True,
+                    elapsed=round(time.monotonic() - start, 2),
+                )
+
             if chunk:
                 buf.extend(chunk)
                 if _prompt_detected(bytes(buf)):
@@ -218,7 +233,11 @@ class SerialSession:
             if remaining <= 0:
                 break
 
-            chunk = ser.read(chunk_size)
+            try:
+                chunk = ser.read(chunk_size)
+            except serial.SerialException:
+                break
+
             if chunk:
                 buf.extend(chunk)
                 has_prompt = _prompt_detected(bytes(buf))
