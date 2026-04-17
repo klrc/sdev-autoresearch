@@ -318,6 +318,7 @@ class SerialSession:
         timeout: Optional[float] = None,
         chunk_size: int = 256,
         filter_fn: Optional[Callable[[str], str]] = None,
+        line_mode: bool = False,
     ) -> Iterator[str]:
         """Yield output incrementally as it arrives.
 
@@ -326,7 +327,11 @@ class SerialSession:
 
         Yields decoded string chunks.  Stops when *timeout* elapses.
 
-        *filter_fn*: optional callable applied to each chunk before yielding.
+        *filter_fn*: optional callable applied to each chunk/line before yielding.
+        *line_mode*: when True, only yield complete lines (ending with
+            ``\\n``).  A trailing partial line is buffered and emitted only
+            when the prompt appears.  Default False — yields raw byte
+            chunks for backward compatibility.
         """
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
@@ -339,17 +344,20 @@ class SerialSession:
         buf = bytearray()
         consumed = 0  # bytes of buf already processed (echo + yielded)
         echo_skip = 0  # leading bytes to skip (echoed command)
+        line_tail = ""  # buffered partial line when line_mode is True
+
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
-                # Reuse interrupt() so it's mockable in tests.
                 try:
                     self.interrupt(timeout=0.5)
                 except Exception:
-                    # Tests may patch time.monotonic with limited side_effects;
-                    # Ctrl+C is already sent before any time.monotonic() call
-                    # in interrupt(), so catching StopIteration is safe.
                     pass
+                if line_mode and line_tail:
+                    if filter_fn:
+                        line_tail = filter_fn(line_tail)
+                    if line_tail:
+                        yield line_tail
                 break
 
             try:
@@ -362,33 +370,61 @@ class SerialSession:
                 buf.extend(chunk)
                 has_prompt = self._check_prompt(bytes(buf))
 
-                # Resolve echo skip length once
                 if echo_skip == 0:
                     clean = _strip_echo(bytes(buf), command)
                     echo_skip = len(buf) - len(clean)
 
-                # New data starts after what we've already consumed and the echo
                 start_pos = max(consumed, echo_skip)
                 new_data = bytes(buf[start_pos:])
+
                 if has_prompt:
                     new_data = _strip_prompt_instance(new_data, self._prompts)
 
                 text = new_data.decode(errors="replace")
-                if filter_fn:
-                    text = filter_fn(text)
-                if text:
-                    yield text
+
+                if line_mode:
+                    # Prepend any previously buffered partial line
+                    if line_tail:
+                        text = line_tail + text
+                        line_tail = ""
+
+                    if not text:
+                        consumed = len(buf)
+                        if has_prompt:
+                            break
+                        if len(buf) > 65536:
+                            remaining_buf = buf[consumed:]
+                            buf.clear()
+                            buf.extend(remaining_buf)
+                            echo_skip = max(0, echo_skip - consumed)
+                            consumed = 0
+                        continue
+
+                    parts = text.split("\n")
+                    # parts[-1] is always the unterminated tail (empty string
+                    # if text itself ends with \n)
+                    if len(parts) > 1:
+                        for part in parts[:-1]:
+                            line = part + "\n"
+                            if filter_fn:
+                                line = filter_fn(line)
+                            if line:
+                                yield line
+                    line_tail = parts[-1]
+                else:
+                    if filter_fn:
+                        text = filter_fn(text)
+                    if text:
+                        yield text
 
                 consumed = len(buf)
                 if has_prompt:
                     break
 
-                # Trim the buffer to prevent unbounded memory growth for
-                # long-running commands (e.g. tail -f).
                 if len(buf) > 65536:
-                    remaining = buf[consumed:]
+                    remaining_buf = buf[consumed:]
                     buf.clear()
-                    buf.extend(remaining)
+                    buf.extend(remaining_buf)
                     echo_skip = max(0, echo_skip - consumed)
                     consumed = 0
             else:
