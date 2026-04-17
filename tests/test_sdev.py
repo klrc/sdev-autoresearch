@@ -57,6 +57,22 @@ class TestPromptDetection(unittest.TestCase):
         self.assertFalse(sdev._prompt_detected(b"some random output"))
 
 
+class TestStripPrompt(unittest.TestCase):
+    def test_removes_trailing_prompt(self):
+        self.assertEqual(sdev._strip_prompt(b"output\n# "), b"output\n")
+
+    def test_leaves_promptless(self):
+        self.assertEqual(sdev._strip_prompt(b"just output"), b"just output")
+
+
+class TestStripEcho(unittest.TestCase):
+    def test_removes_echoed_command(self):
+        self.assertEqual(sdev._strip_echo(b"echo hi\nresult\n# ", "echo hi"), b"result\n# ")
+
+    def test_no_match(self):
+        self.assertEqual(sdev._strip_echo(b"result\n# ", "echo hi"), b"result\n# ")
+
+
 class TestSerialSession(unittest.TestCase):
     def test_init_defaults(self):
         sess = sdev.SerialSession()
@@ -134,7 +150,7 @@ class TestSerialSession(unittest.TestCase):
         sess._connection = mock_ser
 
         r = sess.parse("cat file")
-        self.assertEqual(r.lines, ["line1", "line2", "# "])
+        self.assertEqual(r.lines, ["line1", "line2"])
         self.assertEqual(r.matched, [])
 
     def test_parse_with_pattern(self):
