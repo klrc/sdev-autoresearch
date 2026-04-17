@@ -53,6 +53,7 @@ __all__ = [
     "DEFAULT_DEVICE",
     "MAX_BUFFER_SIZE",
     "TRIM_BUFFER_SIZE",
+    "PROMPTS",
 ]
 
 
@@ -495,10 +496,20 @@ class SerialSession:
             chunk = bytes(chunk)
             if chunk:
                 buf.extend(chunk)
+                # Trim buffer if it exceeds MAX_BUFFER_SIZE to prevent
+                # unbounded memory growth on long-running commands.
+                if len(buf) > MAX_BUFFER_SIZE:
+                    old_consumed = consumed
+                    remaining_buf = buf[consumed:]
+                    buf.clear()
+                    buf.extend(remaining_buf)
+                    echo_skip = max(0, echo_skip - old_consumed)
+                    consumed = 0
+
                 raw = bytes(buf)
                 has_prompt = self._check_prompt(raw)
                 if end_flag_bytes and end_flag_bytes in raw:
-                    has_prompt = True  # reuse prompt-detection path as stop signal
+                    has_prompt = True
 
                 if echo_skip == 0:
                     clean = _strip_echo(bytes(buf), command)
@@ -513,7 +524,6 @@ class SerialSession:
                 text = new_data.decode(errors="replace")
 
                 if line_mode:
-                    # Prepend any previously buffered partial line
                     if line_tail:
                         text = line_tail + text
                         line_tail = ""
@@ -522,18 +532,9 @@ class SerialSession:
                         consumed = len(buf)
                         if has_prompt:
                             break
-                        if len(buf) > MAX_BUFFER_SIZE:
-                            old_consumed = consumed
-                            remaining_buf = buf[consumed:]
-                            buf.clear()
-                            buf.extend(remaining_buf)
-                            echo_skip = max(0, echo_skip - old_consumed)
-                            consumed = 0
                         continue
 
                     parts = text.split("\n")
-                    # parts[-1] is always the unterminated tail (empty string
-                    # if text itself ends with \n)
                     if len(parts) > 1:
                         for part in parts[:-1]:
                             line = part + "\n"
@@ -551,14 +552,6 @@ class SerialSession:
                 consumed = len(buf)
                 if has_prompt:
                     break
-
-                if len(buf) > MAX_BUFFER_SIZE:
-                    old_consumed = consumed
-                    remaining_buf = buf[consumed:]
-                    buf.clear()
-                    buf.extend(remaining_buf)
-                    echo_skip = max(0, echo_skip - old_consumed)
-                    consumed = 0
             else:
                 time.sleep(min(0.1, remaining))
 
