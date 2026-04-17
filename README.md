@@ -46,6 +46,10 @@ with sdev.SerialSession("/dev/ttyUSB0", 115200) as session:
     result = session.cli("ls /proc/meminfo")
     print(result.output)
 
+# Custom prompt detection for non-standard shells
+session = sdev.SerialSession("/dev/ttyUSB0", 115200, prompts=[b"[root@board]# "])
+session.connect()
+
 # Streaming for long-running commands
 for chunk in session.stream("tail -f /var/log/syslog"):
     print(chunk, end="")
@@ -53,6 +57,12 @@ for chunk in session.stream("tail -f /var/log/syslog"):
 # Parsing with regex filtering
 parsed = session.parse("cat /proc/meminfo", pattern=r"Mem.*")
 print(parsed.matched)
+
+# Interrupt a running command (sends Ctrl+C and waits for prompt)
+session.interrupt(timeout=5)
+
+# Recover from device reboot without creating a new session
+session.reconnect()
 
 # Module-level convenience API
 sdev.connect("/dev/ttyUSB0", 115200)
