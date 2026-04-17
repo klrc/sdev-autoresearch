@@ -56,6 +56,20 @@ def main() -> None:
         type=float,
         help="Timeout in seconds (default: 300).",
     )
+    parser.add_argument(
+        "--prompt",
+        action="append",
+        dest="prompts",
+        metavar="PATTERN",
+        help="Shell prompt pattern(s) for completion detection (repeatable). "
+             "Overrides default prompts like '# ', '$ ', etc.",
+    )
+    parser.add_argument(
+        "--interrupt",
+        action="store_true",
+        help="Send Ctrl+C to interrupt a running command on the serial line "
+             "and wait for the prompt. Use without -p.",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -73,6 +87,17 @@ def main() -> None:
         print(f"Default saved: {args.device} @ {args.baud}")
         return
 
+    # --- --interrupt: send Ctrl+C without running a command ---
+    if args.interrupt:
+        device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
+        baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
+        with sdev.SerialSession(device, baud) as sess:
+            ok = sess.interrupt()
+        if not ok:
+            print("[sdev] interrupt: no prompt detected", file=sys.stderr)
+            sys.exit(1)
+        return
+
     # --- normal -p execution ---
     if args.command is None:
         parser.print_help()
@@ -83,7 +108,10 @@ def main() -> None:
     device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
     baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
 
-    with sdev.SerialSession(device, baud) as sess:
+    # Convert prompt strings to bytes
+    prompt_bytes = [p.encode() for p in args.prompts] if args.prompts else None
+
+    with sdev.SerialSession(device, baud, prompts=prompt_bytes) as sess:
         if args.stream:
             if args.grep:
                 _regex = re.compile(args.grep)

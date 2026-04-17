@@ -385,9 +385,11 @@ class SerialSession:
 
                 # Trim the buffer to prevent unbounded memory growth for
                 # long-running commands (e.g. tail -f).
-                if consumed > 65536:
-                    buf = buf[consumed:]
-                    echo_skip = 0
+                if len(buf) > 65536:
+                    remaining = buf[consumed:]
+                    buf.clear()
+                    buf.extend(remaining)
+                    echo_skip = max(0, echo_skip - consumed)
                     consumed = 0
             else:
                 time.sleep(min(0.1, remaining))
