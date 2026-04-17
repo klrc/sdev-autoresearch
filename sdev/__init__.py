@@ -523,10 +523,11 @@ class SerialSession:
                         if has_prompt:
                             break
                         if len(buf) > MAX_BUFFER_SIZE:
+                            old_consumed = consumed
                             remaining_buf = buf[consumed:]
                             buf.clear()
                             buf.extend(remaining_buf)
-                            echo_skip = max(0, echo_skip - consumed)
+                            echo_skip = max(0, echo_skip - old_consumed)
                             consumed = 0
                         continue
 
@@ -552,10 +553,11 @@ class SerialSession:
                     break
 
                 if len(buf) > MAX_BUFFER_SIZE:
+                    old_consumed = consumed
                     remaining_buf = buf[consumed:]
                     buf.clear()
                     buf.extend(remaining_buf)
-                    echo_skip = max(0, echo_skip - consumed)
+                    echo_skip = max(0, echo_skip - old_consumed)
                     consumed = 0
             else:
                 time.sleep(min(0.1, remaining))
