@@ -19,6 +19,9 @@ This experiment runs **two Claude Code CLI agents in adversarial collaboration**
    so you have the latest `development.md` / `test.md`, merged fixes, and any updates landed on `main`. Then `git checkout <your-feature-branch>` and **merge `main` into it** (or **rebase** onto `main` if the human asked for a linear history).  
    You generally **do not** “pull a rejected branch” as if it were canonical: if a PR was **closed without merge**, treat **`main` as source of truth**—read the **PR thread and linked GitHub Issues** (`gh pr view`, `gh issue list`) for why, then re-sync your work from up-to-date `main` (new branch from `main` or rebase) unless the human says otherwise.
 
+4. **Silence from test is not permission to idle**  
+   After triaging GitHub Issues: if the test agent has **not** opened any relevant **`[test]` / `test-feedback`** items (or the list is empty), **do not treat that as a break**. On your own initiative, ask whether the project can be **improved** against this guide and **`README.md`**: robustness, API/CLI clarity, missing coverage, docs drift, error messages, timeout behavior, or small refactors that reduce complexity. Pick the **next most valuable** slice of work, implement it with the usual self-test and PR discipline, and explain the rationale in the PR body. **Waiting for test to file an issue is not an excuse to stop making progress.**
+
 ---
 
 ## Setup (new experiment)
