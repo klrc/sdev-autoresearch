@@ -44,6 +44,11 @@ def main() -> None:
         metavar="REGEX",
         help="Parse output and show only lines matching the regex.",
     )
+    parser.add_argument(
+        "-t", "--timeout",
+        type=float,
+        help="Timeout in seconds (default: 300).",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -73,11 +78,11 @@ def main() -> None:
 
     with sdev.SerialSession(device, baud) as sess:
         if args.stream:
-            for chunk in sess.stream(args.command):
+            for chunk in sess.stream(args.command, timeout=args.timeout):
                 sys.stdout.write(chunk)
             sys.stdout.flush()
         elif args.parse:
-            result = sess.parse(args.command, pattern=args.parse)
+            result = sess.parse(args.command, pattern=args.parse, timeout=args.timeout)
             if result.matched:
                 for line in result.matched:
                     print(line)
@@ -85,7 +90,7 @@ def main() -> None:
                 print("(no matches)", file=sys.stderr)
                 sys.exit(3)
         else:
-            result = sess.cli(args.command)
+            result = sess.cli(args.command, timeout=args.timeout)
             if result.output:
                 sys.stdout.write(result.output)
             if result.timed_out:
