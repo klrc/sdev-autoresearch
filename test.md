@@ -2,7 +2,7 @@
 
 This document defines the **test** agent’s responsibilities in the **adversarial pair** with the dev agent (`development.md`). The test agent should run in a **separate git worktree** from dev to avoid concurrent edits to the same tree.
 
-**Serial time-sharing (same rule as `development.md`):** **test** uses the serial **`:30`–`:59`** each hour; **dev** uses **`:00`–`:29`**. Details below.
+**Serial time-sharing (same rule as `development.md`):** let `m` be the minute-of-hour (`0–59`). **Test** may use the serial **only** when **`m % 10` is 5–9**; **dev** owns **`m % 10` 0–4**. Do not touch the serial outside your slice — full wording in [Serial-port time window](#serial-port-time-window-mandatory) below.
 
 ---
 
@@ -12,13 +12,15 @@ This document defines the **test** agent’s responsibilities in the **adversari
 
 The serial device (default `/dev/ttyUSB0`) is **single-user** across both agents.
 
-| Agent | Serial window (each clock hour, local time) |
-|--------|-----------------------------------------------|
-| **Dev** | **`:00`–`:29`** |
-| **Test** | **`:30`–`:59`** |
+Let `m` be the current **minute-of-hour** (`0–59`). **Dev** may use the serial when **`m % 10` is 0–4**; **test** when **`m % 10` is 5–9**. That is a repeating **5-minute dev / 5-minute test** cadence every ten minutes (e.g. `…:00`–`…:04` dev, `…:05`–`…:09` test, `…:10`–`…:14` dev, `…:15`–`…:19` test, …).
 
-- **Before** any serial I/O, confirm the minute is **`:30`–`:59`**. Otherwise **wait**; do not contend with dev.
-- **Assume** dev may use the device **`:00`–`:29`**.
+| Agent | Condition (same every hour) |
+|--------|-----------------------------|
+| **Dev** | **`m % 10` ∈ {0,1,2,3,4}** |
+| **Test** | **`m % 10` ∈ {5,6,7,8,9}** |
+
+- **Before** any serial I/O, confirm **`m % 10` is 5–9**. If not, **wait** or reschedule; do not contend with dev.
+- **Assume** dev may use the device when **`m % 10` is 0–4**; do not start serial-heavy runs in those slices.
 
 ### GitHub issue handoff
 
