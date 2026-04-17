@@ -21,6 +21,7 @@ CLI::
 import time
 import re
 import serial
+import threading
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Iterator, Callable
@@ -149,6 +150,7 @@ class SerialSession:
         self.device = device
         self.baud = baud
         self._prompts = prompts if prompts is not None else list(PROMPTS)
+        self._lock = threading.Lock()
 
     @property
     def prompts(self) -> list[bytes]:
@@ -263,6 +265,21 @@ class SerialSession:
         shell prompt.  Useful for commands that keep running after producing
         their result (e.g. benchmarks that print "Frame rate: ...").
         """
+        if not self._lock.acquire(timeout=10):
+            raise RuntimeError(
+                "Serial port is busy — another command is in progress on this session."
+            )
+        try:
+            return self._cli_impl(command, timeout, end_flag)
+        finally:
+            self._lock.release()
+
+    def _cli_impl(
+        self,
+        command: str,
+        timeout: Optional[float],
+        end_flag: Optional[str],
+    ) -> SerialResult:
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
         start = time.monotonic()
@@ -342,6 +359,24 @@ class SerialSession:
             chunks for backward compatibility.
         *end_flag*: stop streaming when this string appears in output.
         """
+        if not self._lock.acquire(timeout=10):
+            raise RuntimeError(
+                "Serial port is busy — another command is in progress on this session."
+            )
+        try:
+            yield from self._stream_impl(command, timeout, chunk_size, filter_fn, line_mode, end_flag)
+        finally:
+            self._lock.release()
+
+    def _stream_impl(
+        self,
+        command: str,
+        timeout: Optional[float],
+        chunk_size: int,
+        filter_fn: Optional[Callable[[str], str]],
+        line_mode: bool,
+        end_flag: Optional[str],
+    ) -> Iterator[str]:
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
         start = time.monotonic()
