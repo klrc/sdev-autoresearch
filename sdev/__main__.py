@@ -12,6 +12,7 @@ Usage::
 """
 
 import argparse
+import re
 import sys
 
 import sdev
@@ -85,11 +86,15 @@ def main() -> None:
     with sdev.SerialSession(device, baud) as sess:
         if args.stream:
             if args.grep:
-                import re as _re
-                _regex = _re.compile(args.grep)
+                _regex = re.compile(args.grep)
 
-                def _grep_filter(line: str) -> str:
-                    return line if _regex.search(line) else ""
+                def _grep_filter(text: str) -> str:
+                    trailing_nl = text.endswith("\n")
+                    lines = [l for l in text.splitlines() if _regex.search(l)]
+                    result = "\n".join(lines)
+                    if trailing_nl and result:
+                        result += "\n"
+                    return result
 
                 filter_fn = _grep_filter
             else:
