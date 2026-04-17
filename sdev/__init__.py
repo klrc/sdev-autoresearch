@@ -211,8 +211,8 @@ class SerialSession:
         ser.flush()
 
         buf = bytearray()
-        offset = 0  # how far into buf we've already yielded
-        echo_stripped = False
+        consumed = 0  # bytes of buf already processed (echo + yielded)
+        echo_skip = 0  # leading bytes to skip (echoed command)
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
@@ -223,42 +223,26 @@ class SerialSession:
                 buf.extend(chunk)
                 has_prompt = _prompt_detected(bytes(buf))
 
-                if not echo_stripped:
+                # Resolve echo skip length once
+                if echo_skip == 0:
                     clean = _strip_echo(bytes(buf), command)
-                    echo_prefix = len(buf) - len(clean)
-                    # The echo is either fully found or absent; mark done either way
-                    echo_stripped = True
-                    if has_prompt:
-                        clean = _strip_prompt(clean)
-                    # Yield everything from echo_prefix onward that we haven't yet
-                    new_data = clean[echo_prefix:]
-                    text = new_data.decode(errors="replace")
-                    if filter_fn:
-                        text = filter_fn(text)
-                    if text:
-                        yield text
-                    if has_prompt:
-                        break
-                    offset = len(buf)
-                    continue
+                    echo_skip = len(buf) - len(clean)
 
-                # Echo already handled — yield only new bytes since last yield
+                # New data starts after what we've already consumed and the echo
+                start_pos = max(consumed, echo_skip)
+                new_data = bytes(buf[start_pos:])
                 if has_prompt:
-                    new_data = _strip_prompt(bytes(buf[offset:]))
-                    text = new_data.decode(errors="replace")
-                    if filter_fn:
-                        text = filter_fn(text)
-                    if text:
-                        yield text
-                    break
+                    new_data = _strip_prompt(new_data)
 
-                new_data = bytes(buf[offset:])
                 text = new_data.decode(errors="replace")
                 if filter_fn:
                     text = filter_fn(text)
                 if text:
                     yield text
-                offset = len(buf)
+
+                consumed = len(buf)
+                if has_prompt:
+                    break
             else:
                 time.sleep(min(0.1, remaining))
 
