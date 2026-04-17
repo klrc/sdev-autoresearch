@@ -248,12 +248,20 @@ class SerialSession:
                     return True
             time.sleep(min(0.1, max(remaining, 0.05)))
 
-    def cli(self, command: str, timeout: Optional[float] = None) -> SerialResult:
+    def cli(
+        self,
+        command: str,
+        timeout: Optional[float] = None,
+        end_flag: Optional[str] = None,
+    ) -> SerialResult:
         """Send *command* over serial and return its output.
 
-        Waits until a shell prompt reappears or *timeout* seconds elapse.
-        If the serial connection drops, returns a result with
-        ``timed_out=True`` and the exception text in ``output``.
+        Waits until a shell prompt reappears, *end_flag* is seen in output,
+        or *timeout* seconds elapse.
+
+        *end_flag*: a specific string to wait for instead of (or before) a
+        shell prompt.  Useful for commands that keep running after producing
+        their result (e.g. benchmarks that print "Frame rate: ...").
         """
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
@@ -265,19 +273,16 @@ class SerialSession:
 
         buf = bytearray()
         timed_out = False
+        end_flag_bytes = end_flag.encode() if end_flag else None
 
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
                 timed_out = True
-                # Reuse interrupt() so it's mockable in tests that assert
-                # the method gets called on timeout.
                 try:
                     self.interrupt(timeout=0.5)
                 except StopIteration:
-                    # Test with patched time.monotonic — Ctrl+C already sent.
                     pass
-                # Capture elapsed before interrupt consumed monotonic values.
                 break
 
             try:
@@ -292,6 +297,8 @@ class SerialSession:
 
             if chunk:
                 buf.extend(chunk)
+                if end_flag_bytes and end_flag_bytes in bytes(buf):
+                    break
                 if self._check_prompt(bytes(buf)):
                     break
             else:
@@ -319,6 +326,7 @@ class SerialSession:
         chunk_size: int = 256,
         filter_fn: Optional[Callable[[str], str]] = None,
         line_mode: bool = False,
+        end_flag: Optional[str] = None,
     ) -> Iterator[str]:
         """Yield output incrementally as it arrives.
 
@@ -332,6 +340,7 @@ class SerialSession:
             ``\\n``).  A trailing partial line is buffered and emitted only
             when the prompt appears.  Default False — yields raw byte
             chunks for backward compatibility.
+        *end_flag*: stop streaming when this string appears in output.
         """
         ser = self._ensure_open()
         deadline = timeout or DEFAULT_TIMEOUT
@@ -345,6 +354,7 @@ class SerialSession:
         consumed = 0  # bytes of buf already processed (echo + yielded)
         echo_skip = 0  # leading bytes to skip (echoed command)
         line_tail = ""  # buffered partial line when line_mode is True
+        end_flag_bytes = end_flag.encode() if end_flag else None
 
         while True:
             remaining = deadline - (time.monotonic() - start)
@@ -368,7 +378,10 @@ class SerialSession:
             chunk = bytes(chunk)
             if chunk:
                 buf.extend(chunk)
-                has_prompt = self._check_prompt(bytes(buf))
+                raw = bytes(buf)
+                has_prompt = self._check_prompt(raw)
+                if end_flag_bytes and end_flag_bytes in raw:
+                    has_prompt = True  # reuse prompt-detection path as stop signal
 
                 if echo_skip == 0:
                     clean = _strip_echo(bytes(buf), command)

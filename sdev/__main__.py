@@ -81,6 +81,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Load saved defaults, then override with CLI flags
+    defaults = sdev.load_defaults()
+
     # --- set-default subcommand ---
     if args.subcommand == "set-default":
         sdev.save_default(args.device, args.baud)
@@ -102,9 +105,6 @@ def main() -> None:
     if args.command is None:
         parser.print_help()
         sys.exit(1)
-
-    # Load saved defaults, then override with CLI flags
-    defaults = sdev.load_defaults()
     device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
     baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
 
