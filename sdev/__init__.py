@@ -621,12 +621,18 @@ def cli(
     return _default_session.cli(command, timeout, end_flag)
 
 
-def run(device: str, baud: int, command: str, timeout: Optional[float] = None) -> SerialResult:
+def run(
+    device: str,
+    baud: int,
+    command: str,
+    timeout: Optional[float] = None,
+    end_flag: Optional[str] = None,
+) -> SerialResult:
     """Open connection, run *command*, close. One-shot helper."""
     session = SerialSession(device, baud)
     try:
         session.connect()
-        return session.cli(command, timeout)
+        return session.cli(command, timeout, end_flag)
     finally:
         session.close()
 

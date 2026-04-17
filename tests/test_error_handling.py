@@ -319,12 +319,27 @@ class TestPromptDetectionEdgeCases(unittest.TestCase):
 class TestModuleLevelRunWithEndFlag(unittest.TestCase):
     """sdev.run() should support end_flag parameter."""
 
-    def test_run_missing_end_flag(self):
-        """run() currently doesn't accept end_flag — verify signature."""
+    def test_run_has_end_flag(self):
+        """run() should accept end_flag parameter."""
         import inspect
         sig = inspect.signature(sdev.run)
         params = list(sig.parameters.keys())
-        self.assertNotIn("end_flag", params)
+        self.assertIn("end_flag", params)
+
+    def test_run_passes_end_flag(self):
+        """run() should pass end_flag to session.cli()."""
+        with patch.object(sdev, "SerialSession") as mock_cls:
+            mock_sess = MagicMock()
+            mock_sess.cli.return_value = sdev.SerialResult(
+                "bench", "Frame rate: 60\n", False, 1.0)
+            mock_cls.return_value = mock_sess
+
+            result = sdev.run("/dev/ttyUSB0", 115200, "bench",
+                              end_flag="Frame rate:")
+
+            mock_sess.cli.assert_called_once_with(
+                "bench", None, "Frame rate:")
+            self.assertFalse(result.timed_out)
 
 
 if __name__ == "__main__":
