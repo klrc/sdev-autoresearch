@@ -20,6 +20,7 @@ CLI::
 
 import time
 import re
+import os
 import serial
 import threading
 from pathlib import Path
@@ -46,9 +47,12 @@ __all__ = [
     "reconnect",
     "save_default",
     "load_defaults",
+    "resource_usage",
     "DEFAULT_TIMEOUT",
     "DEFAULT_BAUD",
     "DEFAULT_DEVICE",
+    "MAX_BUFFER_SIZE",
+    "TRIM_BUFFER_SIZE",
 ]
 
 
@@ -61,6 +65,10 @@ DEFAULT_BAUD = 115200
 DEFAULT_DEVICE = "/dev/ttyUSB0"
 CONFIG_DIR = Path.home() / ".config" / "sdev"
 CONFIG_FILE = CONFIG_DIR / "defaults.json"
+
+# Buffer size limits to prevent unbounded memory growth
+MAX_BUFFER_SIZE = 65536  # 64KB
+TRIM_BUFFER_SIZE = 32768  # Keep last 32KB after trim
 
 
 # ---------------------------------------------------------------------------
@@ -308,8 +316,8 @@ class SerialSession:
             if chunk:
                 buf.extend(chunk)
                 # Only keep recent bytes to avoid unbounded growth
-                if len(buf) > 65536:
-                    buf = buf[-32768:]
+                if len(buf) > MAX_BUFFER_SIZE:
+                    buf = buf[-TRIM_BUFFER_SIZE:]
                 if self._check_prompt(bytes(buf)):
                     return True
             time.sleep(min(0.1, max(remaining, 0.05)))
@@ -514,7 +522,7 @@ class SerialSession:
                         consumed = len(buf)
                         if has_prompt:
                             break
-                        if len(buf) > 65536:
+                        if len(buf) > MAX_BUFFER_SIZE:
                             remaining_buf = buf[consumed:]
                             buf.clear()
                             buf.extend(remaining_buf)
@@ -543,7 +551,7 @@ class SerialSession:
                 if has_prompt:
                     break
 
-                if len(buf) > 65536:
+                if len(buf) > MAX_BUFFER_SIZE:
                     remaining_buf = buf[consumed:]
                     buf.clear()
                     buf.extend(remaining_buf)
@@ -668,3 +676,43 @@ def load_defaults() -> dict:
     if CONFIG_FILE.exists():
         return json.loads(CONFIG_FILE.read_text())
     return {}
+
+
+def resource_usage() -> dict:
+    """Return current process CPU and memory usage.
+
+    Useful for self-monitoring during development to ensure the
+    read loops don't cause sustained high CPU or unbounded memory.
+
+    Returns dict with keys:
+        - ``cpu_percent``: current CPU usage (like psutil)
+        - ``memory_bytes``: RSS in bytes
+        - ``memory_mb``: RSS in megabytes
+    """
+    try:
+        with open(f"/proc/{os.getpid()}/stat") as f:
+            stat = f.read().split()
+        utime = int(stat[13])
+        stime = int(stat[14])
+        total_time = utime + stime
+        # Clock ticks per second on Linux (usually 100)
+        hertz = os.sysconf(os.sysconf_names.get("SC_CLK_TCK", 100))
+        uptime_ticks = int(time.monotonic() * hertz)
+        cpu_pct = round((total_time / uptime_ticks) * 100, 2) if uptime_ticks else 0.0
+    except Exception:
+        cpu_pct = 0.0
+
+    try:
+        with open(f"/proc/{os.getpid()}/statm") as f:
+            # statm fields are in pages; second field is RSS
+            rss_pages = int(f.read().split()[1])
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            rss_bytes = rss_pages * page_size
+    except Exception:
+        rss_bytes = 0
+
+    return {
+        "cpu_percent": cpu_pct,
+        "memory_bytes": rss_bytes,
+        "memory_mb": round(rss_bytes / (1024 * 1024), 2),
+    }
