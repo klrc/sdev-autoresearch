@@ -13,6 +13,12 @@ This experiment runs **two Claude Code CLI agents in adversarial collaboration**
    **Dev may use the serial device only during minutes 0–29 of each clock hour** (e.g. `10:00`–`10:29`). **Do not** open or use `/dev/ttyUSB0` (or the configured device) during minutes 30–59 — that window is reserved for the test agent.  
    If you are inside a long run that would cross into the test window, **stop using the serial** before `:30` or schedule work accordingly.
 
+3. **Sync `main` before you implement**  
+   At the start of a dev stint (and before cutting a **new** feature branch), run:  
+   `git fetch origin && git checkout main && git pull origin main`  
+   so you have the latest `development.md` / `test.md`, merged fixes, and any updates landed on `main`. Then `git checkout <your-feature-branch>` and **merge `main` into it** (or **rebase** onto `main` if the human asked for a linear history).  
+   You generally **do not** “pull a rejected branch” as if it were canonical: if a PR was **closed without merge**, treat **`main` as source of truth**—read the PR / issue / `.handoff/ISSUES.md` for why, then re-sync your work from up-to-date `main` (new branch from `main` or rebase) unless the human says otherwise.
+
 ---
 
 ## Setup (new experiment)
