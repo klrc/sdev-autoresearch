@@ -93,7 +93,7 @@ def main() -> None:
     # --- --interrupt: send Ctrl+C without running a command ---
     if args.interrupt:
         device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
-        baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
+        baud = int(args.baud or defaults.get("baud", sdev.DEFAULT_BAUD))
         with sdev.SerialSession(device, baud) as sess:
             ok = sess.interrupt()
         if not ok:
