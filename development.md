@@ -59,7 +59,17 @@ While building, stay aware of serial realities: limited buffers (read promptly /
 
 Internally, aim for **robust code**, **no over-engineering**, **readability**, and **sound architecture**. Prefer structural fixes over one-off hacks. Think from the whole design, not only the symptom in front of you.
 
+### Execution, parsing, and streaming
+
+Real usage is not only **executing** shell commands over serial but also **receiving, reading, and parsing** command output; automation scripts almost always pair execution with parsing (structured lines, regex, state machines, etc.).
+
+**Streaming** (incremental read / async consumption) should be a first-class design consideration for **very long output** or **long-running commands**, so callers are not forced to buffer entire transcripts in memory and can react progressively.
+
+> **Human-directed documentation update**  
+> A GitHub issue was opened by the human operator to record this scope: see [GitHub issue #2](https://github.com/klrc/sdev-autoresearch/issues/2). Agents must **not** treat this expansion as erroneous feedback from the test agent or revert it as a "mistake".
+
 ---
+
 
 ## Files you must not edit
 
