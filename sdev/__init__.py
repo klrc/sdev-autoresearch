@@ -195,7 +195,7 @@ class SerialSession:
     ) -> Iterator[str]:
         """Yield output incrementally as it arrives.
 
-        Echoed command text is stripped from the first chunk.
+        Echoed command text is stripped from the first chunk(s).
         Trailing prompt is not yielded.
 
         Yields decoded string chunks.  Stops when *timeout* elapses.
@@ -211,6 +211,7 @@ class SerialSession:
         ser.flush()
 
         buf = bytearray()
+        offset = 0  # how far into buf we've already yielded
         echo_stripped = False
         while True:
             remaining = deadline - (time.monotonic() - start)
@@ -222,26 +223,42 @@ class SerialSession:
                 buf.extend(chunk)
                 has_prompt = _prompt_detected(bytes(buf))
 
-                # Strip echoed command from first yield
                 if not echo_stripped:
-                    full = bytes(buf)
-                    clean = _strip_echo(full, command)
-                    if clean != full:
-                        chunk = clean
-                        echo_stripped = True
+                    clean = _strip_echo(bytes(buf), command)
+                    echo_prefix = len(buf) - len(clean)
+                    # The echo is either fully found or absent; mark done either way
+                    echo_stripped = True
+                    if has_prompt:
+                        clean = _strip_prompt(clean)
+                    # Yield everything from echo_prefix onward that we haven't yet
+                    new_data = clean[echo_prefix:]
+                    text = new_data.decode(errors="replace")
+                    if filter_fn:
+                        text = filter_fn(text)
+                    if text:
+                        yield text
+                    if has_prompt:
+                        break
+                    offset = len(buf)
+                    continue
 
-                text = chunk.decode(errors="replace")
-
-                # If prompt detected, strip it from the last chunk before yielding
+                # Echo already handled — yield only new bytes since last yield
                 if has_prompt:
-                    text = _strip_prompt(chunk).decode(errors="replace")
+                    new_data = _strip_prompt(bytes(buf[offset:]))
+                    text = new_data.decode(errors="replace")
+                    if filter_fn:
+                        text = filter_fn(text)
+                    if text:
+                        yield text
+                    break
 
+                new_data = bytes(buf[offset:])
+                text = new_data.decode(errors="replace")
                 if filter_fn:
                     text = filter_fn(text)
                 if text:
                     yield text
-                if has_prompt:
-                    break
+                offset = len(buf)
             else:
                 time.sleep(min(0.1, remaining))
 
