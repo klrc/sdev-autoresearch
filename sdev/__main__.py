@@ -5,6 +5,7 @@ Usage::
 
     sdev -p "ls /proc/meminfo" -d /dev/ttyUSB0 -b 115200
     sdev -p "tail -f /var/log/syslog" --stream -d /dev/ttyUSB0
+    sdev -p "tail -f /var/log/syslog" --stream --grep "ERROR" -d /dev/ttyUSB0
     sdev -p "cat /proc/meminfo" --parse "Mem(Available|Total)" -d /dev/ttyUSB0
     sdev set-default /dev/ttyUSB0 115200
     sdev -p "ls /proc/meminfo"          # uses saved defaults
@@ -45,6 +46,11 @@ def main() -> None:
         help="Parse output and show only lines matching the regex.",
     )
     parser.add_argument(
+        "--grep",
+        metavar="REGEX",
+        help="During --stream, only yield lines matching the regex.",
+    )
+    parser.add_argument(
         "-t", "--timeout",
         type=float,
         help="Timeout in seconds (default: 300).",
@@ -78,7 +84,18 @@ def main() -> None:
 
     with sdev.SerialSession(device, baud) as sess:
         if args.stream:
-            for chunk in sess.stream(args.command, timeout=args.timeout):
+            if args.grep:
+                import re as _re
+                _regex = _re.compile(args.grep)
+
+                def _grep_filter(line: str) -> str:
+                    return line if _regex.search(line) else ""
+
+                filter_fn = _grep_filter
+            else:
+                filter_fn = None
+
+            for chunk in sess.stream(args.command, timeout=args.timeout, filter_fn=filter_fn):
                 sys.stdout.write(chunk)
             sys.stdout.flush()
         elif args.parse:
