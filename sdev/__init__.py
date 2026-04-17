@@ -109,6 +109,14 @@ def _strip_echo(buf: bytes, command: str) -> bytes:
     return buf
 
 
+_ANSI_RE = re.compile(rb"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(buf: bytes) -> bytes:
+    """Remove ANSI escape sequences from *buf*."""
+    return _ANSI_RE.sub(b"", buf)
+
+
 def _prompt_detected(buf: bytes) -> bool:
     """Return True if a known shell prompt appears at the tail of *buf*."""
     stripped = buf.rstrip(b"\r\n")
@@ -222,6 +230,7 @@ class SerialSession:
 
         elapsed = time.monotonic() - start
         clean = bytes(buf)
+        clean = _strip_ansi(clean)
         clean = _strip_echo(clean, command)
         clean = _strip_prompt(clean)
         return SerialResult(
