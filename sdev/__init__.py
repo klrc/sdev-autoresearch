@@ -243,6 +243,13 @@ class SerialSession:
                 consumed = len(buf)
                 if has_prompt:
                     break
+
+                # Trim the buffer to prevent unbounded memory growth for
+                # long-running commands (e.g. tail -f).
+                if consumed > 65536:
+                    buf = buf[consumed:]
+                    consumed = 0
+                    echo_skip = max(0, echo_skip - consumed)
             else:
                 time.sleep(min(0.1, remaining))
 
