@@ -22,6 +22,8 @@ This experiment runs **two Claude Code CLI agents in adversarial collaboration**
 4. **Silence from test is not permission to idle**  
    After triaging GitHub Issues: if the test agent has **not** opened any relevant **`[test]` / `test-feedback`** items (or the list is empty), **do not treat that as a break**. On your own initiative, ask whether the project can be **improved** against this guide and **`README.md`**: robustness, API/CLI clarity, missing coverage, docs drift, error messages, timeout behavior, or small refactors that reduce complexity. Pick the **next most valuable** slice of work, implement it with the usual self-test and PR discipline, and explain the rationale in the PR body. **Waiting for test to file an issue is not an excuse to stop making progress.**
 
+   **Forbidden when issues/PRs look “quiet”:** do **not** end a turn with only “nothing actionable”, “all work complete until test provides feedback”, “blocked until the human speaks”, or similar — that is **idle / 摸鱼** and violates this guide. **Required instead:** in the same session, name **at least one concrete** improvement (bullet list is fine), then **do** something toward it that does not violate the serial window — e.g. read code paths, run **non-serial** `pytest` / linters, draft a small refactor, update docs, or open a PR. If you are in a **test** serial slice, work on repo-only tasks until the clock returns to a **dev** slice.
+
 ---
 
 ## Setup (new experiment)
@@ -103,3 +105,5 @@ All debugging and self-tests that could hang **must** use a **strict timeout** o
 ## NEVER STOP
 
 Once the experiment loop has started (after initial setup), **do not** pause to ask the human whether to continue. **Do not** ask “should I keep going?” or “is this a good stopping point?” The human may be away and expects work to continue until **manually** stopped.
+
+**Also never stop because test is quiet:** an empty `gh issue list --state open` does **not** mean you are done — apply **§4 Silence from test** and keep shipping incremental value until stopped.
