@@ -18,7 +18,6 @@ CLI::
     sdev -p "ls /proc/meminfo"          # uses saved defaults
 """
 
-import os
 import time
 import re
 import serial
@@ -196,8 +195,8 @@ class SerialSession:
     ) -> Iterator[str]:
         """Yield output incrementally as it arrives.
 
-        Suitable for long-running commands or large output where buffering
-        the entire transcript in memory is impractical.
+        Echoed command text is stripped from the first chunk.
+        Trailing prompt is not yielded.
 
         Yields decoded string chunks.  Stops when *timeout* elapses.
 
@@ -212,6 +211,7 @@ class SerialSession:
         ser.flush()
 
         buf = bytearray()
+        echo_stripped = False
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
@@ -220,11 +220,27 @@ class SerialSession:
             chunk = ser.read(chunk_size)
             if chunk:
                 buf.extend(chunk)
+                has_prompt = _prompt_detected(bytes(buf))
+
+                # Strip echoed command from first yield
+                if not echo_stripped:
+                    full = bytes(buf)
+                    clean = _strip_echo(full, command)
+                    if clean != full:
+                        chunk = clean
+                        echo_stripped = True
+
                 text = chunk.decode(errors="replace")
+
+                # If prompt detected, strip it from the last chunk before yielding
+                if has_prompt:
+                    text = _strip_prompt(chunk).decode(errors="replace")
+
                 if filter_fn:
                     text = filter_fn(text)
-                yield text
-                if _prompt_detected(bytes(buf)):
+                if text:
+                    yield text
+                if has_prompt:
                     break
             else:
                 time.sleep(min(0.1, remaining))

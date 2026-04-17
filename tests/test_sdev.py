@@ -128,7 +128,7 @@ class TestSerialSession(unittest.TestCase):
         sess._connection = mock_ser
 
         chunks = list(sess.stream("echo hello world"))
-        self.assertEqual(chunks, ["hello ", "world\n# "])
+        self.assertEqual(chunks, ["hello ", "world\n"])
 
     def test_stream_timeout(self):
         mock_ser = MagicMock()
