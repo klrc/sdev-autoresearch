@@ -224,6 +224,70 @@ class SerialSession:
                 pass
             self._connection = None
 
+    def doctor(self, timeout: float = 10) -> None:
+        """Clear stray foreground processes and drain garbage from serial buffer.
+
+        Sends multiple Ctrl+C sequences, then waits for a clean prompt.
+        Useful after a device reboot or when previous commands left
+        interactive programs (top, vi, etc.) running.
+        """
+        if not self.is_open:
+            self.connect()
+        ser = self._ensure_open()
+        deadline = timeout
+        start = time.monotonic()
+        buf = bytearray()
+
+        # Send multiple Ctrl+C to clear foreground jobs
+        for _ in range(3):
+            ser.write(b"\x03")
+            time.sleep(0.2)
+        ser.write(b"\r\n")
+        time.sleep(0.3)
+
+        # Drain buffer until we see a prompt or timeout
+        while True:
+            remaining = deadline - (time.monotonic() - start)
+            if remaining <= 0:
+                return
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException:
+                return
+            if chunk:
+                buf.extend(chunk)
+                if len(buf) > 65536:
+                    buf = buf[-32768:]
+                if self._check_prompt(bytes(buf)):
+                    return
+            time.sleep(min(0.1, remaining))
+
+    def wait_for_silence(self, timeout: float = 1.5) -> None:
+        """Block until no data arrives on the serial line for *timeout* seconds.
+
+        Useful to ensure the device has finished booting or that a
+        background process has stopped producing output.
+        """
+        if not self.is_open:
+            self.connect()
+        ser = self._ensure_open()
+        deadline = time.monotonic() + 30  # hard cap
+        last_data = time.monotonic()
+
+        while True:
+            now = time.monotonic()
+            if now - last_data >= timeout:
+                return
+            if now > deadline:
+                return
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException:
+                return
+            if chunk:
+                last_data = now
+            time.sleep(min(0.1, timeout))
+
     def interrupt(self, timeout: Optional[float] = 5) -> bool:
         """Send Ctrl+C to interrupt a running command and wait for the prompt.
 
