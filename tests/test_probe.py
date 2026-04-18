@@ -84,6 +84,7 @@ class TestProbeBoardInfo(unittest.TestCase):
 
         def fake_cli(cmd, **kw):
             responses = {
+                "echo sdev-ping": "sdev-ping\n",
                 "cat /etc/os-release": 'NAME="Ubuntu"\nVERSION="22.04"\n',
                 "uname -a": "Linux xc01 5.10.0 armv7l GNU/Linux\n",
             }
@@ -110,8 +111,32 @@ class TestProbeBoardInfo(unittest.TestCase):
         mock_sess.cli = fake_cli
 
         info = sdev._probe_board_info(mock_sess)
-        # Should return empty/unknown values, not crash
-        self.assertEqual(info.get("os_name"), "unknown")
+        # Quick ping times out — should return "no response"
+        self.assertEqual(info.get("os_name"), "no response")
+
+    def test_board_info_falls_back_to_proc_version(self):
+        """probe() should detect Linux via /proc/version when /etc/os-release missing."""
+        mock_sess = MagicMock()
+        mock_sess.is_open = True
+        mock_sess._connection = MagicMock()
+        mock_sess._connection.is_open = True
+
+        def fake_cli(cmd, **kw):
+            responses = {
+                "echo sdev-ping": "sdev-ping\n",
+                "cat /etc/os-release": "cat: can't open '/etc/os-release': No such file or directory\n",
+                "busybox --help 2>&1 | head -1": "",
+                "uname -a": "Linux (none) 5.10.0 armv7l GNU/Linux\n",
+                "grep -m1 'model name' /proc/cpuinfo": "",
+                "cat /proc/version": "Linux version 5.10.144 (builder) armv7l\n",
+            }
+            return sdev.SerialResult(cmd, responses.get(cmd, ""), False, 0.1)
+
+        mock_sess.cli = fake_cli
+
+        info = sdev._probe_board_info(mock_sess)
+        self.assertEqual(info["os_name"], "Linux")
+        self.assertEqual(info["arch"], "armv7l")
 
 
 class TestProbeFunction(unittest.TestCase):
@@ -130,6 +155,21 @@ class TestProbeFunction(unittest.TestCase):
             # Empty since no devices found
             self.assertEqual(results, [])
 
+    def test_probe_does_not_call_doctor(self):
+        """probe() should skip doctor() for fast enumeration."""
+        mock_sess = MagicMock()
+        mock_sess.is_open = True
+        mock_sess._connection = MagicMock()
+        mock_sess._connection.is_open = True
+        mock_sess.cli.return_value = sdev.SerialResult(
+            "cat /etc/os-release", 'NAME="Ubuntu"\n', False, 0.1)
+
+        with patch.object(sdev, "_enumerate_devices",
+                          return_value=["/dev/ttyUSB0"]), \
+             patch("sdev.SerialSession", return_value=mock_sess) as mock_cls:
+            sdev.probe()
+
+        mock_sess.doctor.assert_not_called()
 
 class TestPlatformDetection(unittest.TestCase):
     """Platform detection helpers."""
