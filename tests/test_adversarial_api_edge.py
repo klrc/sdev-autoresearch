@@ -75,21 +75,23 @@ class TestCLITimeoutPropagation(unittest.TestCase):
     def test_cli_passes_timeout_to_session(self):
         session = sdev.SerialSession()
         with patch.object(session, "_ensure_open") as mock_ensure, \
-             patch("sdev.time.monotonic", side_effect=[0, 5.1, 5.1]):
+             patch.object(session, "interrupt", return_value=False):
             mock_ser = MagicMock()
             mock_ser.read.return_value = b""
             mock_ensure.return_value = mock_ser
-            result = session.cli("cmd", timeout=5.0)
+            with patch("sdev.time.monotonic", side_effect=[0, 5.1, 5.2]):
+                result = session.cli("cmd", timeout=5.0)
             self.assertTrue(result.timed_out)
 
     def test_stream_timeout_stops_iteration(self):
         session = sdev.SerialSession()
         with patch.object(session, "_ensure_open") as mock_ensure, \
-             patch("sdev.time.monotonic", side_effect=[0, 11.0, 11.0]):
+             patch.object(session, "interrupt", return_value=False):
             mock_ser = MagicMock()
             mock_ser.read.return_value = b""
             mock_ensure.return_value = mock_ser
-            chunks = list(session.stream("cmd", timeout=10.0))
+            with patch("sdev.time.monotonic", side_effect=[0, 11.0]):
+                chunks = list(session.stream("cmd", timeout=10.0))
             self.assertEqual(chunks, [])
 
     def test_parse_passes_timeout_through_cli(self):
