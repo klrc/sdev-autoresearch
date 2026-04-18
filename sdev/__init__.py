@@ -61,6 +61,8 @@ __all__ = [
     "PROMPTS",
     "probe",
     "write",
+    "doctor",
+    "wait_for_silence",
 ]
 
 
@@ -679,6 +681,16 @@ def write(data: bytes) -> int:
     Returns the number of bytes written.
     """
     return _default_session.write(data)
+
+
+def doctor(timeout: float = 10) -> None:
+    """Clear stray foreground processes on the default connection."""
+    _default_session.doctor(timeout)
+
+
+def wait_for_silence(timeout: float = 1.5) -> None:
+    """Block until no data arrives on the default connection for *timeout* seconds."""
+    _default_session.wait_for_silence(timeout)
 
 
 # ---------------------------------------------------------------------------

@@ -103,6 +103,11 @@ def main() -> None:
         dest="probe_bauds",
         help="Baud rates to try during --probe (repeatable, default: 115200).",
     )
+    parser.add_argument(
+        "--doctor-only",
+        action="store_true",
+        help="Clear stray foreground processes and exit without running a command.",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -132,6 +137,15 @@ def main() -> None:
         if not ok:
             print("[sdev] interrupt: no prompt detected", file=sys.stderr)
             sys.exit(1)
+        return
+
+    # --- --doctor-only: clear foreground processes without running a command ---
+    if args.doctor_only:
+        device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
+        baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
+        with sdev.SerialSession(device, baud) as sess:
+            sess.doctor()
+        print("[sdev] doctor: done")
         return
 
     # --- --probe: detect serial boards ---
