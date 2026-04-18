@@ -84,6 +84,7 @@ class TestProbeBoardInfo(unittest.TestCase):
 
         def fake_cli(cmd, **kw):
             responses = {
+                "echo sdev-ping": "sdev-ping\n",
                 "cat /etc/os-release": 'NAME="Ubuntu"\nVERSION="22.04"\n',
                 "uname -a": "Linux xc01 5.10.0 armv7l GNU/Linux\n",
             }
@@ -110,8 +111,8 @@ class TestProbeBoardInfo(unittest.TestCase):
         mock_sess.cli = fake_cli
 
         info = sdev._probe_board_info(mock_sess)
-        # Should return empty/unknown values, not crash
-        self.assertEqual(info.get("os_name"), "unknown")
+        # Quick ping times out — should return "no response"
+        self.assertEqual(info.get("os_name"), "no response")
 
     def test_board_info_falls_back_to_proc_version(self):
         """probe() should detect Linux via /proc/version when /etc/os-release missing."""
@@ -122,6 +123,7 @@ class TestProbeBoardInfo(unittest.TestCase):
 
         def fake_cli(cmd, **kw):
             responses = {
+                "echo sdev-ping": "sdev-ping\n",
                 "cat /etc/os-release": "cat: can't open '/etc/os-release': No such file or directory\n",
                 "busybox --help 2>&1 | head -1": "",
                 "uname -a": "Linux (none) 5.10.0 armv7l GNU/Linux\n",

@@ -783,6 +783,17 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
     """
     info: dict[str, str] = {"os_name": "unknown", "hostname": "unknown"}
 
+    # Quick ping: if this fails, the device is not responding.
+    # Use a very short timeout to detect dead devices fast.
+    try:
+        result = session.cli("echo sdev-ping", timeout=timeout)
+        if result.timed_out or "sdev-ping" not in result.output:
+            info["os_name"] = "no response"
+            return info
+    except Exception:
+        info["os_name"] = "no response"
+        return info
+
     # Try /etc/os-release first (standard Linux), then fall back to
     # /proc/version for embedded/BusyBox systems.
     os_found = False
