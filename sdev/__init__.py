@@ -261,8 +261,8 @@ class SerialSession:
                 return
             if chunk:
                 buf.extend(chunk)
-                if len(buf) > 65536:
-                    buf = buf[-32768:]
+                if len(buf) > MAX_BUFFER_SIZE:
+                    buf = buf[-TRIM_BUFFER_SIZE:]
                 if self._check_prompt(bytes(buf)):
                     return
             time.sleep(min(0.1, remaining))
@@ -833,8 +833,14 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
             info["hostname"] = parts[1]
         if len(parts) >= 3:
             info["kernel"] = parts[2]
-        if len(parts) >= 4:
-            info["arch"] = parts[3]
+        # Architecture position varies; on BusyBox uname -a it's near the end,
+        # but standard Linux puts it at parts[11] before "GNU/Linux".
+        # Scan from the end looking for known arch patterns.
+        for p in reversed(parts):
+            if p in ("armv7l", "armv6l", "aarch64", "x86_64", "i686", "mips",
+                     "riscv64", "powerpc", "s390x") or p.startswith("armv"):
+                info["arch"] = p
+                break
         if not result.output.strip():
             pass  # timed out, keep defaults
     except Exception:
@@ -847,7 +853,14 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
     try:
         result = session.cli("grep -m1 'model name' /proc/cpuinfo", timeout=timeout)
         if result.output:
-            info["cpu_model"] = result.output.split(":", 1)[-1].strip()
+            value = result.output.split(":", 1)[-1].strip()
+            # Strip trailing prompt artifact that may leak through
+            for prompt in [b"~ ", b"# ", b"$ "]:
+                p = prompt.decode()
+                if value.endswith(p):
+                    value = value[:-len(p)].rstrip()
+            if value:
+                info["cpu_model"] = value
     except Exception:
         pass
 
