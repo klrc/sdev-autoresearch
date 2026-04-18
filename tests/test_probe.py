@@ -76,20 +76,24 @@ class TestProbeBoardInfo(unittest.TestCase):
     """probe() should extract board information from a live device."""
 
     def test_board_info_from_mock_session(self):
-        """probe() should use cli() to read /etc/os-release, uname, etc."""
+        """probe() should use cli() to read aggregated identification command."""
         mock_sess = MagicMock()
         mock_sess.is_open = True
         mock_sess._connection = MagicMock()
         mock_sess._connection.is_open = True
 
         def fake_cli(cmd, **kw):
-            responses = {
-                "echo sdev-ping": "sdev-ping\n",
-                "cat /etc/os-release": 'NAME="Ubuntu"\nVERSION="22.04"\n',
-                "uname -a": "Linux xc01 5.10.0 armv7l GNU/Linux\n",
-            }
-            output = responses.get(cmd, "")
-            return sdev.SerialResult(cmd, output, False, 0.1)
+            if "sdev-ping" in cmd:
+                return sdev.SerialResult(cmd, "sdev-ping\n", False, 0.1)
+            # Aggregated command
+            if "---OS---" in cmd:
+                return sdev.SerialResult(cmd,
+                    '---OS---\nNAME="Ubuntu"\nVERSION="22.04"\n'
+                    '---VER---\nnone\n'
+                    '---BB---\nnone\n'
+                    '---UNAME---\nLinux xc01 5.10.0 armv7l GNU/Linux\n'
+                    '---CPU---\nnone\n', False, 0.1)
+            return sdev.SerialResult(cmd, "", False, 0.1)
 
         mock_sess.cli = fake_cli
 
@@ -106,6 +110,8 @@ class TestProbeBoardInfo(unittest.TestCase):
         mock_sess._connection.is_open = True
 
         def fake_cli(cmd, **kw):
+            if "sdev-ping" in cmd:
+                return sdev.SerialResult(cmd, "", True, 5.0)
             return sdev.SerialResult(cmd, "", True, 5.0)
 
         mock_sess.cli = fake_cli
@@ -122,15 +128,17 @@ class TestProbeBoardInfo(unittest.TestCase):
         mock_sess._connection.is_open = True
 
         def fake_cli(cmd, **kw):
-            responses = {
-                "echo sdev-ping": "sdev-ping\n",
-                "cat /etc/os-release": "cat: can't open '/etc/os-release': No such file or directory\n",
-                "busybox --help 2>&1 | head -1": "",
-                "uname -a": "Linux (none) 5.10.0 armv7l GNU/Linux\n",
-                "grep -m1 'model name' /proc/cpuinfo": "",
-                "cat /proc/version": "Linux version 5.10.144 (builder) armv7l\n",
-            }
-            return sdev.SerialResult(cmd, responses.get(cmd, ""), False, 0.1)
+            if "sdev-ping" in cmd:
+                return sdev.SerialResult(cmd, "sdev-ping\n", False, 0.1)
+            # Aggregated command: os-release fails, /proc/version has data
+            if "---OS---" in cmd:
+                return sdev.SerialResult(cmd,
+                    "---OS---\ncat: can't open '/etc/os-release': No such file or directory\n"
+                    "---VER---\nLinux version 5.10.144 (builder) armv7l\n"
+                    "---BB---\nnone\n"
+                    "---UNAME---\nLinux (none) 5.10.0 armv7l GNU/Linux\n"
+                    "---CPU---\nnone\n", False, 0.1)
+            return sdev.SerialResult(cmd, "", False, 0.1)
 
         mock_sess.cli = fake_cli
 

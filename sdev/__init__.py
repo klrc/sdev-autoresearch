@@ -803,10 +803,9 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
     """
     info: dict[str, str] = {"os_name": "unknown", "hostname": "unknown"}
 
-    # Quick ping: if this fails, the device is not responding.
-    # Use a very short timeout to detect dead devices fast.
+    # Quick ping with a short timeout to detect dead devices fast.
     try:
-        result = session.cli("echo sdev-ping", timeout=timeout)
+        result = session.cli("echo sdev-ping", timeout=0.2)
         if result.timed_out or "sdev-ping" not in result.output:
             info["os_name"] = "no response"
             return info
@@ -814,75 +813,84 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
         info["os_name"] = "no response"
         return info
 
-    # Try /etc/os-release first (standard Linux), then fall back to
-    # /proc/version for embedded/BusyBox systems.
-    os_found = False
+    # Aggregate all identification commands into a single shell command
+    # to avoid per-command connect/serial overhead (issue #50).
+    cmd = (
+        "echo '---OS---'; "
+        "cat /etc/os-release 2>/dev/null || echo 'none'; "
+        "echo '---VER---'; "
+        "cat /proc/version 2>/dev/null || echo 'none'; "
+        "echo '---BB---'; "
+        "busybox --help 2>&1 | head -1 2>/dev/null || echo 'none'; "
+        "echo '---UNAME---'; "
+        "uname -a 2>/dev/null || echo 'none'; "
+        "echo '---CPU---'; "
+        "grep -m1 'model name' /proc/cpuinfo 2>/dev/null || echo 'none'"
+    )
     try:
-        result = session.cli("cat /etc/os-release", timeout=timeout)
-        for line in result.output.splitlines():
-            if line.startswith("NAME="):
-                info["os_name"] = line.split("=", 1)[1].strip('"')
-                os_found = True
-            elif line.startswith("VERSION="):
-                info["os_version"] = line.split("=", 1)[1].strip('"')
+        result = session.cli(cmd, timeout=timeout)
     except Exception:
-        pass
+        result = None
 
-    if not os_found:
-        try:
-            result = session.cli("cat /proc/version", timeout=timeout)
-            if result.output and "Linux version" in result.output:
+    if result and not result.timed_out:
+        output = result.output
+        def section(name):
+            # Use rfind because the echoed command may contain --- markers.
+            # The last occurrence is the real output.
+            marker = f"---{name}---"
+            start = output.rfind(marker)
+            if start < 0:
+                return ""
+            start += len(marker) + 1
+            end = output.find("---", start)
+            return output[start:end].strip() if end > 0 else output[start:].strip()
+
+        os_release = section("OS")
+        if os_release and os_release != "none":
+            for line in os_release.splitlines():
+                if line.startswith("NAME="):
+                    info["os_name"] = line.split("=", 1)[1].strip('"')
+                elif line.startswith("VERSION="):
+                    info["os_version"] = line.split("=", 1)[1].strip('"')
+
+        ver = section("VER")
+        if ver and ver != "none" and info["os_name"] == "unknown":
+            if "Linux version" in ver:
                 info["os_name"] = "Linux"
-        except Exception:
-            pass
 
-    # Try BusyBox version as a secondary identity hint
-    try:
-        result = session.cli("busybox --help 2>&1 | head -1", timeout=timeout)
-        if result.output and "BusyBox" in result.output:
-            info["busybox_version"] = result.output.split("BusyBox ")[-1].strip().split(" ")[0]
+        bb = section("BB")
+        if bb and bb != "none" and "BusyBox" in bb:
+            info["busybox_version"] = bb.split("BusyBox ")[-1].strip().split(" ")[0]
             if info["os_name"] == "unknown":
                 info["os_name"] = "BusyBox Linux"
-    except Exception:
-        pass
 
-    try:
-        result = session.cli("uname -a", timeout=timeout)
-        parts = result.output.split()
-        if len(parts) >= 2:
-            info["hostname"] = parts[1]
-        if len(parts) >= 3:
-            info["kernel"] = parts[2]
-        # Architecture position varies; on BusyBox uname -a it's near the end,
-        # but standard Linux puts it at parts[11] before "GNU/Linux".
-        # Scan from the end looking for known arch patterns.
-        for p in reversed(parts):
-            if p in ("armv7l", "armv6l", "aarch64", "x86_64", "i686", "mips",
-                     "riscv64", "powerpc", "s390x") or p.startswith("armv"):
-                info["arch"] = p
-                break
-        if not result.output.strip():
-            pass  # timed out, keep defaults
-    except Exception:
-        pass
-    if "hostname" not in info:
-        info["hostname"] = "unknown"
-    if "os_name" not in info:
-        info["os_name"] = "unknown"
+        uname = section("UNAME")
+        if uname and uname != "none":
+            parts = uname.split()
+            if len(parts) >= 2:
+                info["hostname"] = parts[1]
+            if len(parts) >= 3:
+                info["kernel"] = parts[2]
+            for p in reversed(parts):
+                if p in ("armv7l", "armv6l", "aarch64", "x86_64", "i686", "mips",
+                         "riscv64", "powerpc", "s390x") or p.startswith("armv"):
+                    info["arch"] = p
+                    break
 
-    try:
-        result = session.cli("grep -m1 'model name' /proc/cpuinfo", timeout=timeout)
-        if result.output:
-            value = result.output.split(":", 1)[-1].strip()
-            # Strip trailing prompt artifact that may leak through
+        cpu = section("CPU")
+        if cpu and cpu != "none" and ":" in cpu:
+            value = cpu.split(":", 1)[-1].strip()
             for prompt in [b"~ ", b"# ", b"$ "]:
                 p = prompt.decode()
                 if value.endswith(p):
                     value = value[:-len(p)].rstrip()
             if value:
                 info["cpu_model"] = value
-    except Exception:
-        pass
+
+    if "hostname" not in info:
+        info["hostname"] = "unknown"
+    if "os_name" not in info:
+        info["os_name"] = "unknown"
 
     return info
 
@@ -893,8 +901,8 @@ def probe(
 ) -> list[dict]:
     """Detect available serial boards on this system.
 
-    Enumerates platform-specific serial device paths, opens each with
-    candidate baud rates, and reads identifying information.
+    Uses non-blocking I/O with a short ping to skip dead devices fast,
+    then runs a single aggregated command for board identification.
 
     Args:
         baud_rates: Baud rates to try (default: [115200]).
@@ -915,14 +923,80 @@ def probe(
 
     for device_path in devices:
         for baud in baud_rates:
-            session = SerialSession(device_path, baud)
             try:
-                session.connect()
-                info = _probe_board_info(session, timeout=timeout)
+                ser = serial.Serial(device_path, baud, timeout=0)
+                ser.reset_input_buffer()
+
+                # Quick ping: send echo and wait for response.
+                # Dead USB serial ports often return empty bytes on read
+                # with no timeout set — use a very short loop so we
+                # don't waste time on them.
+                ser.write(b"echo sdev-ping\n")
+                ser.flush()
+                got = b""
+                start = time.monotonic()
+                while time.monotonic() - start < 0.1:
+                    chunk = ser.read(4096)
+                    if chunk:
+                        got += chunk
+                    if b"sdev-ping" in got:
+                        break
+                    time.sleep(0.05)
+
+                if b"sdev-ping" not in got:
+                    results.append({
+                        "device": device_path,
+                        "baud": baud,
+                        "info": {"os_name": "no response", "hostname": "unknown"},
+                    })
+                    ser.close()
+                    continue
+
+                # Board responded — run aggregated identification command
+                ser.reset_input_buffer()
+                cmd = (
+                    "echo '---OS---'; "
+                    "cat /etc/os-release 2>/dev/null || echo 'none'; "
+                    "echo '---VER---'; "
+                    "cat /proc/version 2>/dev/null || echo 'none'; "
+                    "echo '---BB---'; "
+                    "busybox --help 2>&1 | head -1 2>/dev/null || echo 'none'; "
+                    "echo '---UNAME---'; "
+                    "uname -a 2>/dev/null || echo 'none'; "
+                    "echo '---CPU---'; "
+                    "grep -m1 'model name' /proc/cpuinfo 2>/dev/null || echo 'none'\n"
+                )
+                ser.write(cmd.encode())
+                ser.flush()
+
+                got = b""
+                start = time.monotonic()
+                no_data_count = 0
+                while time.monotonic() - start < timeout:
+                    chunk = ser.read(4096)
+                    if chunk:
+                        got += chunk
+                        no_data_count = 0
+                        if len(got) > 8192:
+                            break
+                    else:
+                        no_data_count += 1
+                        if no_data_count > 10:
+                            break
+                    time.sleep(0.05)
+
+                info = _parse_board_info(got)
                 results.append({
                     "device": device_path,
                     "baud": baud,
                     "info": info,
+                })
+                ser.close()
+            except serial.SerialException as exc:
+                results.append({
+                    "device": device_path,
+                    "baud": baud,
+                    "error": str(exc),
                 })
             except Exception as exc:
                 results.append({
@@ -930,10 +1004,77 @@ def probe(
                     "baud": baud,
                     "error": str(exc),
                 })
-            finally:
-                session.close()
+                # Close if we opened it
+                try:
+                    ser.close()  # noqa: F821
+                except Exception:
+                    pass
         # If first baud rate worked, skip others
         if results and "error" not in results[-1]:
             continue
 
     return results
+
+
+def _parse_board_info(raw: bytes) -> dict:
+    """Parse board info from raw serial output containing ---markers---."""
+    info: dict[str, str] = {"os_name": "unknown", "hostname": "unknown"}
+    output = raw.decode(errors="replace")
+
+    def section(name):
+        marker = f"---{name}---"
+        start = output.rfind(marker)
+        if start < 0:
+            return ""
+        start += len(marker) + 1
+        end = output.find("---", start)
+        return output[start:end].strip() if end > 0 else output[start:].strip()
+
+    os_release = section("OS")
+    if os_release and os_release != "none":
+        for line in os_release.splitlines():
+            if line.startswith("NAME="):
+                info["os_name"] = line.split("=", 1)[1].strip('"')
+            elif line.startswith("VERSION="):
+                info["os_version"] = line.split("=", 1)[1].strip('"')
+
+    ver = section("VER")
+    if ver and ver != "none" and info["os_name"] == "unknown":
+        if "Linux version" in ver:
+            info["os_name"] = "Linux"
+
+    bb = section("BB")
+    if bb and bb != "none" and "BusyBox" in bb:
+        info["busybox_version"] = bb.split("BusyBox ")[-1].strip().split(" ")[0]
+        if info["os_name"] == "unknown":
+            info["os_name"] = "BusyBox Linux"
+
+    uname = section("UNAME")
+    if uname and uname != "none":
+        parts = uname.split()
+        if len(parts) >= 2:
+            info["hostname"] = parts[1]
+        if len(parts) >= 3:
+            info["kernel"] = parts[2]
+        for p in reversed(parts):
+            if p in ("armv7l", "armv6l", "aarch64", "x86_64", "i686", "mips",
+                     "riscv64", "powerpc", "s390x") or p.startswith("armv"):
+                info["arch"] = p
+                break
+
+    cpu = section("CPU")
+    if cpu and cpu != "none" and ":" in cpu:
+        value = cpu.split(":", 1)[-1].strip()
+        for prompt in [b"~ ", b"# ", b"$ "]:
+            p = prompt.decode()
+            if value.endswith(p):
+                value = value[:-len(p)].rstrip()
+        if value:
+            info["cpu_model"] = value
+
+    if "hostname" not in info:
+        info["hostname"] = "unknown"
+    if "os_name" not in info:
+        info["os_name"] = "unknown"
+
+    return info
