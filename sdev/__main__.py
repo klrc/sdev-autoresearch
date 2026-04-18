@@ -90,6 +90,19 @@ def main() -> None:
         action="store_true",
         help="Clear stray foreground processes and drain garbage before running a command.",
     )
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="Detect available serial boards on this system and print device info.",
+    )
+    parser.add_argument(
+        "--probe-baud",
+        type=int,
+        default=None,
+        action="append",
+        dest="probe_bauds",
+        help="Baud rates to try during --probe (repeatable, default: 115200).",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -119,6 +132,21 @@ def main() -> None:
         if not ok:
             print("[sdev] interrupt: no prompt detected", file=sys.stderr)
             sys.exit(1)
+        return
+
+    # --- --probe: detect serial boards ---
+    if args.probe:
+        import json
+        results = sdev.probe(baud_rates=args.probe_bauds, timeout=2)
+        if not results:
+            print("No serial devices detected.")
+            sys.exit(1)
+        for r in results:
+            if "error" in r:
+                print(f"{r['device']} @ {r['baud']}: ERROR: {r['error']}")
+            else:
+                info = r["info"]
+                print(f"{r['device']} @ {r['baud']}: {info.get('os_name', '?')} / {info.get('hostname', '?')}")
         return
 
     # --- normal -p execution ---

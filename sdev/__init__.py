@@ -21,6 +21,8 @@ CLI::
 import time
 import re
 import os
+import sys
+import glob
 import serial
 import threading
 from pathlib import Path
@@ -53,6 +55,8 @@ __all__ = [
     "DEFAULT_DEVICE",
     "MAX_BUFFER_SIZE",
     "TRIM_BUFFER_SIZE",
+    "PROMPTS",
+    "probe",
 ]
 
 
@@ -386,6 +390,10 @@ class SerialSession:
 
             if chunk:
                 buf.extend(chunk)
+                # Trim buffer if it exceeds MAX_BUFFER_SIZE to prevent
+                # unbounded memory growth on commands with massive output.
+                if len(buf) > MAX_BUFFER_SIZE:
+                    buf = buf[-TRIM_BUFFER_SIZE:]
                 if end_flag_bytes and end_flag_bytes in bytes(buf):
                     break
                 if self._check_prompt(bytes(buf)):
@@ -495,10 +503,20 @@ class SerialSession:
             chunk = bytes(chunk)
             if chunk:
                 buf.extend(chunk)
+                # Trim buffer if it exceeds MAX_BUFFER_SIZE to prevent
+                # unbounded memory growth on long-running commands.
+                if len(buf) > MAX_BUFFER_SIZE:
+                    old_consumed = consumed
+                    remaining_buf = buf[consumed:]
+                    buf.clear()
+                    buf.extend(remaining_buf)
+                    echo_skip = max(0, echo_skip - old_consumed)
+                    consumed = 0
+
                 raw = bytes(buf)
                 has_prompt = self._check_prompt(raw)
                 if end_flag_bytes and end_flag_bytes in raw:
-                    has_prompt = True  # reuse prompt-detection path as stop signal
+                    has_prompt = True
 
                 if echo_skip == 0:
                     clean = _strip_echo(bytes(buf), command)
@@ -513,7 +531,6 @@ class SerialSession:
                 text = new_data.decode(errors="replace")
 
                 if line_mode:
-                    # Prepend any previously buffered partial line
                     if line_tail:
                         text = line_tail + text
                         line_tail = ""
@@ -522,18 +539,9 @@ class SerialSession:
                         consumed = len(buf)
                         if has_prompt:
                             break
-                        if len(buf) > MAX_BUFFER_SIZE:
-                            old_consumed = consumed
-                            remaining_buf = buf[consumed:]
-                            buf.clear()
-                            buf.extend(remaining_buf)
-                            echo_skip = max(0, echo_skip - old_consumed)
-                            consumed = 0
                         continue
 
                     parts = text.split("\n")
-                    # parts[-1] is always the unterminated tail (empty string
-                    # if text itself ends with \n)
                     if len(parts) > 1:
                         for part in parts[:-1]:
                             line = part + "\n"
@@ -551,14 +559,6 @@ class SerialSession:
                 consumed = len(buf)
                 if has_prompt:
                     break
-
-                if len(buf) > MAX_BUFFER_SIZE:
-                    old_consumed = consumed
-                    remaining_buf = buf[consumed:]
-                    buf.clear()
-                    buf.extend(remaining_buf)
-                    echo_skip = max(0, echo_skip - old_consumed)
-                    consumed = 0
             else:
                 time.sleep(min(0.1, remaining))
 
@@ -621,12 +621,18 @@ def cli(
     return _default_session.cli(command, timeout, end_flag)
 
 
-def run(device: str, baud: int, command: str, timeout: Optional[float] = None) -> SerialResult:
+def run(
+    device: str,
+    baud: int,
+    command: str,
+    timeout: Optional[float] = None,
+    end_flag: Optional[str] = None,
+) -> SerialResult:
     """Open connection, run *command*, close. One-shot helper."""
     session = SerialSession(device, baud)
     try:
         session.connect()
-        return session.cli(command, timeout)
+        return session.cli(command, timeout, end_flag)
     finally:
         session.close()
 
@@ -726,3 +732,139 @@ def resource_usage() -> dict:
         "memory_bytes": rss_bytes,
         "memory_mb": round(rss_bytes / (1024 * 1024), 2),
     }
+
+
+# ---------------------------------------------------------------------------
+# Board probing (issue #45)
+# ---------------------------------------------------------------------------
+
+def _is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def _is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _probe_device_patterns() -> list[str]:
+    """Return platform-appropriate glob patterns for serial devices."""
+    if _is_linux():
+        return ["/dev/ttyUSB*", "/dev/ttyACM*", "/dev/ttyAMA*"]
+    if _is_macos():
+        return ["/dev/tty.usbserial*", "/dev/tty.usbmodem*",
+                "/dev/cu.usbserial*", "/dev/cu.usbmodem*"]
+    if _is_windows():
+        return ["COM*"]
+    return []
+
+
+def _enumerate_devices() -> list[str]:
+    """Return list of existing serial device paths on this system."""
+    patterns = _probe_device_patterns()
+    devices = []
+    for pattern in patterns:
+        devices.extend(glob.glob(pattern))
+    return sorted(set(devices))
+
+
+def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
+    """Extract board identification from a live serial session.
+
+    Reads /etc/os-release, uname, and /proc/cpuinfo for model info.
+    Returns dict with keys: os_name, hostname, arch, kernel, cpu_model.
+    """
+    info: dict[str, str] = {"os_name": "unknown", "hostname": "unknown"}
+
+    try:
+        result = session.cli("cat /etc/os-release", timeout=timeout)
+        for line in result.output.splitlines():
+            if line.startswith("NAME="):
+                info["os_name"] = line.split("=", 1)[1].strip('"')
+            elif line.startswith("VERSION="):
+                info["os_version"] = line.split("=", 1)[1].strip('"')
+    except Exception:
+        info["os_name"] = "unknown"
+
+    try:
+        result = session.cli("uname -a", timeout=timeout)
+        parts = result.output.split()
+        if len(parts) >= 2:
+            info["hostname"] = parts[1]
+        if len(parts) >= 3:
+            info["kernel"] = parts[2]
+        if len(parts) >= 4:
+            info["arch"] = parts[3]
+        if not result.output.strip():
+            pass  # timed out, keep defaults
+    except Exception:
+        pass
+    if "hostname" not in info:
+        info["hostname"] = "unknown"
+    if "os_name" not in info:
+        info["os_name"] = "unknown"
+
+    try:
+        result = session.cli("grep -m1 'model name' /proc/cpuinfo", timeout=timeout)
+        if result.output:
+            info["cpu_model"] = result.output.split(":", 1)[-1].strip()
+    except Exception:
+        pass
+
+    return info
+
+
+def probe(
+    baud_rates: Optional[list[int]] = None,
+    timeout: float = 2,
+) -> list[dict]:
+    """Detect available serial boards on this system.
+
+    Enumerates platform-specific serial device paths, opens each with
+    candidate baud rates, and reads identifying information.
+
+    Args:
+        baud_rates: Baud rates to try (default: [115200]).
+        timeout: Per-command timeout in seconds for board identification.
+
+    Returns:
+        List of dicts with keys:
+            - ``device``: device path (e.g. "/dev/ttyUSB0")
+            - ``baud``: baud rate that worked
+            - ``info``: board identification dict from _probe_board_info()
+            - ``error``: error message if probe failed (optional)
+    """
+    if baud_rates is None:
+        baud_rates = [115200]
+
+    devices = _enumerate_devices()
+    results: list[dict] = []
+
+    for device_path in devices:
+        for baud in baud_rates:
+            session = SerialSession(device_path, baud)
+            try:
+                session.connect()
+                session.doctor(timeout=3)
+                info = _probe_board_info(session, timeout=timeout)
+                results.append({
+                    "device": device_path,
+                    "baud": baud,
+                    "info": info,
+                })
+            except Exception as exc:
+                results.append({
+                    "device": device_path,
+                    "baud": baud,
+                    "error": str(exc),
+                })
+            finally:
+                session.close()
+        # If first baud rate worked, skip others
+        if results and "error" not in results[-1]:
+            continue
+
+    return results

@@ -39,6 +39,10 @@ sdev -p "ls /proc/meminfo"
 # Send Ctrl+C to interrupt a running command (without -p)
 sdev --interrupt -d /dev/ttyUSB0 -b 115200
 
+# Detect serial boards on this system
+sdev --probe
+sdev --probe --probe-baud 9600 --probe-baud 38400
+
 # Custom prompt patterns for non-standard shells
 sdev -p "ls" --prompt "[root@board]# " --prompt "admin@box> "
 ```
@@ -59,6 +63,8 @@ sdev -p "ls" --prompt "[root@board]# " --prompt "admin@box> "
 | `--doctor` | Clear foreground processes before command |
 | `--prompt PATTERN` | Custom shell prompt pattern (repeatable) |
 | `--interrupt` | Send Ctrl+C and wait for prompt |
+| `--probe` | Detect serial boards and print info |
+| `--probe-baud BAUD` | Baud rates to try during `--probe` (repeatable) |
 | `set-default` | Persist device/baud as defaults |
 
 ## Design Goals
@@ -118,6 +124,10 @@ session.reconnect()
 # Monitor CPU/memory during long operations
 usage = sdev.resource_usage()
 print(f"RSS: {usage['memory_mb']} MB, CPU: {usage['cpu_percent']}%")
+
+# Detect serial boards and get OS/arch info
+for device in sdev.probe():
+    print(f"{device['device']} @ {device['baud']}: {device['info']['os_name']}")
 ```
 
 ### Thread safety

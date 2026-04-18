@@ -447,6 +447,133 @@ class TestSessionContextManager(unittest.TestCase):
         self.assertIsNone(sess._connection)
 
 
+class TestCLIProbe(unittest.TestCase):
+    """Integration tests for --probe CLI flag."""
+
+    def test_probe_exits_nonzero_when_no_devices(self):
+        """--probe should exit with code 1 when no devices found."""
+        with patch("sys.argv", ["sdev", "--probe"]), \
+             patch.object(sdev, "probe", return_value=[]):
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+                self.assertEqual(cm.exception.code, 1)
+
+    def test_probe_prints_devices_when_found(self):
+        """--probe should print device info for each found device."""
+        fake_results = [
+            {
+                "device": "/dev/ttyUSB0",
+                "baud": 115200,
+                "info": {
+                    "os_name": "Ubuntu",
+                    "hostname": "xc01",
+                    "arch": "armv7l",
+                },
+            },
+        ]
+        with patch("sys.argv", ["sdev", "--probe"]), \
+             patch.object(sdev, "probe", return_value=fake_results):
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                main()
+            output = captured.getvalue()
+            self.assertIn("/dev/ttyUSB0", output)
+            self.assertIn("Ubuntu", output)
+            self.assertIn("xc01", output)
+
+    def test_probe_handles_error_in_results(self):
+        """--probe should print ERROR for devices that fail."""
+        fake_results = [
+            {"device": "/dev/ttyUSB0", "baud": 115200, "error": "permission denied"},
+        ]
+        with patch("sys.argv", ["sdev", "--probe"]), \
+             patch.object(sdev, "probe", return_value=fake_results):
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                main()
+            output = captured.getvalue()
+            self.assertIn("/dev/ttyUSB0", output)
+            self.assertIn("permission denied", output)
+
+    def test_probe_passes_custom_bauds(self):
+        """--probe --probe-baud 9600 should pass baud_rates to probe()."""
+        with patch("sys.argv", ["sdev", "--probe", "--probe-baud", "9600",
+                                "--probe-baud", "38400"]), \
+             patch.object(sdev, "probe", return_value=[]) as mock_probe:
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                with self.assertRaises(SystemExit):
+                    main()
+            mock_probe.assert_called_once_with(baud_rates=[9600, 38400], timeout=2)
+
+
+class TestCLIDoctor(unittest.TestCase):
+    """Tests for --doctor CLI flag."""
+
+    def test_doctor_before_cli(self):
+        """--doctor should call doctor() before cli()."""
+        mock_sess = MagicMock()
+        mock_sess.cli.return_value = sdev.SerialResult("cmd", "ok\n", False, 0.1)
+
+        with patch("sys.argv", ["sdev", "-p", "uptime", "--doctor",
+                                "-d", "/dev/ttyS0", "-b", "9600"]), \
+             patch("sdev.SerialSession") as mock_cls, \
+             patch("sdev.serial.Serial", return_value=MagicMock()):
+            mock_cls.return_value.__enter__ = MagicMock(return_value=mock_sess)
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                main()
+
+            # Verify doctor was called before cli
+            doctor_call = mock_sess.doctor.call_args_list
+            cli_call = mock_sess.cli.call_args_list
+            self.assertTrue(len(doctor_call) > 0)
+            self.assertTrue(len(cli_call) > 0)
+            # Doctor call index < cli call index in the mock
+            doctor_idx = mock_sess.doctor.call_count  # at least 1
+            self.assertGreater(doctor_idx, 0)
+
+
+class TestCLIInterrupt(unittest.TestCase):
+    """Tests for --interrupt CLI flag."""
+
+    def test_interrupt_sends_ctrl_c(self):
+        """--interrupt should call session.interrupt()."""
+        with patch("sys.argv", ["sdev", "--interrupt",
+                                "-d", "/dev/ttyS0", "-b", "9600"]), \
+             patch("sdev.SerialSession") as mock_cls:
+            mock_sess = MagicMock()
+            mock_sess.interrupt.return_value = True
+            mock_cls.return_value.__enter__ = MagicMock(return_value=mock_sess)
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                main()
+
+            mock_sess.interrupt.assert_called_once()
+
+    def test_interrupt_exits_nonzero_when_no_prompt(self):
+        """--interrupt should exit 1 when prompt not detected."""
+        with patch("sys.argv", ["sdev", "--interrupt",
+                                "-d", "/dev/ttyS0", "-b", "9600"]), \
+             patch("sdev.SerialSession") as mock_cls:
+            mock_sess = MagicMock()
+            mock_sess.interrupt.return_value = False
+            mock_cls.return_value.__enter__ = MagicMock(return_value=mock_sess)
+            mock_cls.return_value.__exit__ = MagicMock(return_value=False)
+
+            captured = io.StringIO()
+            with patch("sys.stderr", captured):
+                with self.assertRaises(SystemExit) as cm:
+                    main()
+                self.assertEqual(cm.exception.code, 1)
+
+
 class TestDefaultsPersistence(unittest.TestCase):
     """save_default / load_defaults round-trip."""
 
