@@ -115,6 +115,16 @@ class TestXC01Basic(unittest.TestCase):
             result = sess.cli("echo recovered")
             self.assertIn("recovered", result.output)
 
+    def test_write_raw_bytes(self):
+        """write() should send raw bytes and be followed by cli() output."""
+        with self._session() as sess:
+            sess.doctor()
+            n = sess.write(b"echo raw-write-test\n")
+            self.assertGreater(n, 0)
+            # Follow up with a cli() to verify session is still functional
+            result = sess.cli("echo after-write")
+            self.assertIn("after-write", result.output)
+
 
 if __name__ == "__main__":
     unittest.main()
