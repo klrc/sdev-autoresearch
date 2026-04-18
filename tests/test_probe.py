@@ -130,6 +130,22 @@ class TestProbeFunction(unittest.TestCase):
             # Empty since no devices found
             self.assertEqual(results, [])
 
+    def test_probe_does_not_call_doctor(self):
+        """probe() should skip doctor() for fast enumeration."""
+        mock_sess = MagicMock()
+        mock_sess.is_open = True
+        mock_sess._connection = MagicMock()
+        mock_sess._connection.is_open = True
+        mock_sess.cli.return_value = sdev.SerialResult(
+            "cat /etc/os-release", 'NAME="Ubuntu"\n', False, 0.1)
+
+        with patch.object(sdev, "_enumerate_devices",
+                          return_value=["/dev/ttyUSB0"]), \
+             patch("sdev.SerialSession", return_value=mock_sess) as mock_cls:
+            sdev.probe()
+
+        mock_sess.doctor.assert_not_called()
+
 
 class TestPlatformDetection(unittest.TestCase):
     """Platform detection helpers."""
