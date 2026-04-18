@@ -833,58 +833,7 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
         result = None
 
     if result and not result.timed_out:
-        output = result.output
-        def section(name):
-            # Use rfind because the echoed command may contain --- markers.
-            # The last occurrence is the real output.
-            marker = f"---{name}---"
-            start = output.rfind(marker)
-            if start < 0:
-                return ""
-            start += len(marker) + 1
-            end = output.find("---", start)
-            return output[start:end].strip() if end > 0 else output[start:].strip()
-
-        os_release = section("OS")
-        if os_release and os_release != "none":
-            for line in os_release.splitlines():
-                if line.startswith("NAME="):
-                    info["os_name"] = line.split("=", 1)[1].strip('"')
-                elif line.startswith("VERSION="):
-                    info["os_version"] = line.split("=", 1)[1].strip('"')
-
-        ver = section("VER")
-        if ver and ver != "none" and info["os_name"] == "unknown":
-            if "Linux version" in ver:
-                info["os_name"] = "Linux"
-
-        bb = section("BB")
-        if bb and bb != "none" and "BusyBox" in bb:
-            info["busybox_version"] = bb.split("BusyBox ")[-1].strip().split(" ")[0]
-            if info["os_name"] == "unknown":
-                info["os_name"] = "BusyBox Linux"
-
-        uname = section("UNAME")
-        if uname and uname != "none":
-            parts = uname.split()
-            if len(parts) >= 2:
-                info["hostname"] = parts[1]
-            if len(parts) >= 3:
-                info["kernel"] = parts[2]
-            for p in reversed(parts):
-                if p in ("armv7l", "armv6l", "aarch64", "x86_64", "i686", "mips",
-                         "riscv64", "powerpc", "s390x") or p.startswith("armv"):
-                    info["arch"] = p
-                    break
-
-        cpu = section("CPU")
-        if cpu and cpu != "none" and ":" in cpu:
-            value = cpu.split(":", 1)[-1].strip()
-            for prompt in ["~ #", "# ", "$ "]:
-                if value.endswith(prompt):
-                    value = value[:-len(prompt)].rstrip()
-            if value:
-                info["cpu_model"] = value
+        info = _parse_board_info(result.output.encode())
 
     if "hostname" not in info:
         info["hostname"] = "unknown"
