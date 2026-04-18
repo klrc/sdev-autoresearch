@@ -390,6 +390,10 @@ class SerialSession:
 
             if chunk:
                 buf.extend(chunk)
+                # Trim buffer if it exceeds MAX_BUFFER_SIZE to prevent
+                # unbounded memory growth on commands with massive output.
+                if len(buf) > MAX_BUFFER_SIZE:
+                    buf = buf[-TRIM_BUFFER_SIZE:]
                 if end_flag_bytes and end_flag_bytes in bytes(buf):
                     break
                 if self._check_prompt(bytes(buf)):
