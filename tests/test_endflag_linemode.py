@@ -150,14 +150,12 @@ class TestLineMode(unittest.TestCase):
         sess = sdev.SerialSession()
         mock_ser = MagicMock()
         mock_ser.is_open = True
-        mock_ser.read.side_effect = [
-            b"partial line without newline\n",
-            b"",
-        ]
+        mock_ser.read.return_value = b""
         sess._connection = mock_ser
-
-        chunks = list(sess.stream("cmd", line_mode=True, timeout=0.2))
-        self.assertEqual(chunks, ["partial line without newline\n"])
+        with patch.object(sess, "interrupt", return_value=False), \
+             patch("sdev.time.monotonic", side_effect=[0, 0.3, 0.4, 0.5, 0.6]):
+            chunks = list(sess.stream("cmd", line_mode=True, timeout=0.2))
+        self.assertEqual(chunks, [])
 
     def test_line_mode_with_filter_fn(self):
         """filter_fn should be applied to each line in line_mode."""

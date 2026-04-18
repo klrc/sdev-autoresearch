@@ -385,10 +385,7 @@ class SerialSession:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
                 timed_out = True
-                try:
-                    self.interrupt(timeout=0.5)
-                except StopIteration:
-                    pass
+                self.interrupt(timeout=0.5)
                 break
 
             try:
@@ -414,10 +411,7 @@ class SerialSession:
             else:
                 time.sleep(min(0.1, remaining))
 
-        try:
-            elapsed = time.monotonic() - start
-        except StopIteration:
-            elapsed = deadline
+        elapsed = time.monotonic() - start
         clean = bytes(buf)
         clean = _strip_ansi(clean)
         clean = _strip_echo(clean, command)
@@ -486,20 +480,11 @@ class SerialSession:
         end_flag_bytes = end_flag.encode() if end_flag else None
 
         while True:
-            try:
-                remaining = deadline - (time.monotonic() - start)
-            except StopIteration:
-                # Mock exhausted — treat as timeout.
-                if line_mode and line_tail:
-                    if filter_fn:
-                        line_tail = filter_fn(line_tail)
-                    if line_tail:
-                        yield line_tail
-                break
+            remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
                 try:
                     self.interrupt(timeout=0.5)
-                except (StopIteration, Exception):
+                except Exception:
                     pass
                 if line_mode and line_tail:
                     if filter_fn:
@@ -510,7 +495,7 @@ class SerialSession:
 
             try:
                 chunk = ser.read(chunk_size)
-            except (serial.SerialException, StopIteration):
+            except serial.SerialException:
                 break
 
             chunk = bytes(chunk)
@@ -860,7 +845,7 @@ def probe(
         List of dicts with keys:
             - ``device``: device path (e.g. "/dev/ttyUSB0")
             - ``baud``: baud rate that worked
-            - ``info``: board identification dict from _probe_board_info()
+            - ``info``: board identification dict from ``_parse_board_info()``
             - ``error``: error message if probe failed (optional)
     """
     if baud_rates is None:
