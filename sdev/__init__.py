@@ -58,6 +58,7 @@ __all__ = [
     "TRIM_BUFFER_SIZE",
     "PROMPTS",
     "probe",
+    "write",
 ]
 
 
@@ -219,6 +220,17 @@ class SerialSession:
             if stripped.endswith(p):
                 return True
         return False
+
+    def write(self, data: bytes) -> int:
+        """Write raw bytes to the serial port.
+
+        Useful for sending control sequences, interacting with programs
+        that are not shell-based, or sending custom protocol data.
+        """
+        ser = self._ensure_open()
+        ser.write(data)
+        ser.flush()
+        return len(data)
 
     def close(self) -> None:
         """Close the serial connection if open."""
@@ -672,6 +684,14 @@ def interrupt(timeout: Optional[float] = None) -> bool:
 def reconnect() -> None:
     """Reopen the default serial connection after a device reboot."""
     _default_session.reconnect()
+
+
+def write(data: bytes) -> int:
+    """Write raw bytes to the default serial connection.
+
+    Returns the number of bytes written.
+    """
+    return _default_session.write(data)
 
 
 # ---------------------------------------------------------------------------
