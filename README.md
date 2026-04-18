@@ -128,6 +128,11 @@ print(f"RSS: {usage['memory_mb']} MB, CPU: {usage['cpu_percent']}%")
 # Detect serial boards and get OS/arch info
 for device in sdev.probe():
     print(f"{device['device']} @ {device['baud']}: {device['info']['os_name']}")
+
+# Send raw bytes over serial (control sequences, custom protocols)
+sdev.connect("/dev/ttyUSB0", 115200)
+n = sdev.write(b"reboot\n")
+print(f"Wrote {n} bytes")
 ```
 
 ### Thread safety
