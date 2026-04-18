@@ -775,20 +775,45 @@ def _enumerate_devices() -> list[str]:
 def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
     """Extract board identification from a live serial session.
 
-    Reads /etc/os-release, uname, and /proc/cpuinfo for model info.
+    Uses BusyBox-friendly fallbacks: /etc/os-release may not exist on
+    embedded systems, so try /proc/version, busybox version, and
+    /proc/cpuinfo as fallbacks.
+
     Returns dict with keys: os_name, hostname, arch, kernel, cpu_model.
     """
     info: dict[str, str] = {"os_name": "unknown", "hostname": "unknown"}
 
+    # Try /etc/os-release first (standard Linux), then fall back to
+    # /proc/version for embedded/BusyBox systems.
+    os_found = False
     try:
         result = session.cli("cat /etc/os-release", timeout=timeout)
         for line in result.output.splitlines():
             if line.startswith("NAME="):
                 info["os_name"] = line.split("=", 1)[1].strip('"')
+                os_found = True
             elif line.startswith("VERSION="):
                 info["os_version"] = line.split("=", 1)[1].strip('"')
     except Exception:
-        info["os_name"] = "unknown"
+        pass
+
+    if not os_found:
+        try:
+            result = session.cli("cat /proc/version", timeout=timeout)
+            if result.output and "Linux version" in result.output:
+                info["os_name"] = "Linux"
+        except Exception:
+            pass
+
+    # Try BusyBox version as a secondary identity hint
+    try:
+        result = session.cli("busybox --help 2>&1 | head -1", timeout=timeout)
+        if result.output and "BusyBox" in result.output:
+            info["busybox_version"] = result.output.split("BusyBox ")[-1].strip().split(" ")[0]
+            if info["os_name"] == "unknown":
+                info["os_name"] = "BusyBox Linux"
+    except Exception:
+        pass
 
     try:
         result = session.cli("uname -a", timeout=timeout)

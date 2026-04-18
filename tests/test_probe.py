@@ -146,7 +146,6 @@ class TestProbeFunction(unittest.TestCase):
 
         mock_sess.doctor.assert_not_called()
 
-
 class TestPlatformDetection(unittest.TestCase):
     """Platform detection helpers."""
 
