@@ -261,8 +261,9 @@ class TestCLILargeOutputNoMemoryLeak(unittest.TestCase):
 
         result = sess.cli("big_output", timeout=30)
         self.assertFalse(result.timed_out)
-        # Buffer should have been trimmed — result may not have all A's
-        # but it should not crash or hang
+        # Buffer should have been trimmed — output should not contain
+        # all 65636 bytes of A's
+        self.assertLess(len(result.output), sdev.MAX_BUFFER_SIZE)
 
 
 class TestParseWithNoPattern(unittest.TestCase):
