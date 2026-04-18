@@ -16,6 +16,7 @@ CLI::
     sdev -p "ls /proc/meminfo" -d /dev/ttyUSB0 -b 115200
     sdev set-default /dev/ttyUSB0 115200
     sdev -p "ls /proc/meminfo"          # uses saved defaults
+    sdev --probe                        # detect serial boards
 """
 
 import time
@@ -848,7 +849,6 @@ def probe(
             session = SerialSession(device_path, baud)
             try:
                 session.connect()
-                session.doctor(timeout=3)
                 info = _probe_board_info(session, timeout=timeout)
                 results.append({
                     "device": device_path,
