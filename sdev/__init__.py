@@ -880,10 +880,9 @@ def _probe_board_info(session: SerialSession, timeout: float = 3) -> dict:
         cpu = section("CPU")
         if cpu and cpu != "none" and ":" in cpu:
             value = cpu.split(":", 1)[-1].strip()
-            for prompt in [b"~ ", b"# ", b"$ "]:
-                p = prompt.decode()
-                if value.endswith(p):
-                    value = value[:-len(p)].rstrip()
+            for prompt in ["~ #", "# ", "$ "]:
+                if value.endswith(prompt):
+                    value = value[:-len(prompt)].rstrip()
             if value:
                 info["cpu_model"] = value
 
@@ -1065,10 +1064,9 @@ def _parse_board_info(raw: bytes) -> dict:
     cpu = section("CPU")
     if cpu and cpu != "none" and ":" in cpu:
         value = cpu.split(":", 1)[-1].strip()
-        for prompt in [b"~ ", b"# ", b"$ "]:
-            p = prompt.decode()
-            if value.endswith(p):
-                value = value[:-len(p)].rstrip()
+        for prompt in ["~ #", "# ", "$ "]:
+            if value.endswith(prompt):
+                value = value[:-len(prompt)].rstrip()
         if value:
             info["cpu_model"] = value
 
