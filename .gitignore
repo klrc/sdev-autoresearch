@@ -12,3 +12,4 @@ build/
 *.log
 .config/
 .claude/
+api_key
