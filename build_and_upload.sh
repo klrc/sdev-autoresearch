@@ -79,7 +79,8 @@ for ((i=1; i<=MAX_RETRIES; i++)); do
 done
 
 if [ "$installed_success" = false ]; then
-  error "PyPI 安装验证失败：在尝试了 $((MAX_RETRIES * RETRY_INTERVAL)) 秒后仍未检测到新版本 $version。请稍后手动运行 'pip install -U sdev' 验证。"
+  error "PyPI 安装验证失败：在尝试了 $((MAX_RETRIES * RETRY_INTERVAL)) 秒后仍未检测到新版本 $version。上传可能已成功，请稍后手动运行 'pip install -U sdev' 验证。"
+  exit 1
 fi
 
 success "全部流程完成！版本 $version 已发布。"
