@@ -133,6 +133,12 @@ for device in sdev.probe():
 sdev.connect("/dev/ttyUSB0", 115200)
 n = sdev.write(b"reboot\n")
 print(f"Wrote {n} bytes")
+
+# Clear stray foreground processes on the default connection
+sdev.doctor()
+
+# Wait for boot completion (no serial data for N seconds)
+sdev.wait_for_silence(timeout=2.0)
 ```
 
 ### Thread safety
