@@ -31,6 +31,12 @@ class TestModuleLevelWaitForSilence(unittest.TestCase):
             sdev.wait_for_silence(timeout=3.0)
             mock_sess.wait_for_silence.assert_called_once_with(3.0)
 
+    def test_wait_for_silence_default_timeout(self):
+        """sdev.wait_for_silence() should use default timeout of 1.5 if not specified."""
+        with patch.object(sdev, "_default_session") as mock_sess:
+            sdev.wait_for_silence()
+            mock_sess.wait_for_silence.assert_called_once_with(1.5)
+
 
 class TestDoctorOnlyCLI(unittest.TestCase):
     """CLI --doctor-only flag should run doctor and exit."""
