@@ -21,7 +21,7 @@ CLI::
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 
 import time
 import re
@@ -65,6 +65,7 @@ __all__ = [
     "write",
     "doctor",
     "wait_for_silence",
+    "interpret_sysrq_blocked",
 ]
 
 
@@ -171,6 +172,7 @@ class SerialSession:
         self.baud = baud
         self._prompts = prompts if prompts is not None else list(PROMPTS)
         self._lock = threading.Lock()
+        self.last_doctor_report: Optional[str] = None
 
     @property
     def prompts(self) -> list[bytes]:
@@ -247,13 +249,78 @@ class SerialSession:
                 pass
             self._connection = None
 
-    def doctor(self, timeout: float = 10) -> None:
+    def _capture_serial_idle(self, ser: serial.Serial, seconds: float) -> bytes:
+        """Accumulate inbound bytes for roughly *seconds* (polling)."""
+        out = bytearray()
+        end = time.monotonic() + max(0.05, seconds)
+        while time.monotonic() < end:
+            try:
+                chunk = ser.read(4096)
+            except serial.SerialException:
+                break
+            if chunk:
+                out.extend(chunk)
+                if len(out) > MAX_BUFFER_SIZE:
+                    del out[: len(out) - TRIM_BUFFER_SIZE]
+            else:
+                time.sleep(0.05)
+        return bytes(out)
+
+    def sysrq(self, key: str, *, capture_secs: float = 2.0) -> str:
+        """Send Linux Magic SysRq over serial (UART BREAK + command letter).
+
+        *key*: one ascii letter (e.g. ``"h"`` help, ``"w"`` blocked tasks,
+        ``"s"`` sync, ``"b"`` immediate reboot).
+
+        Reads from the serial line for up to *capture_secs* and returns
+        decoded output (kernel messages as seen on the serial console).
+
+        Raises:
+            RuntimeError: if the connection is unavailable or BREAK is not supported.
+            ValueError: if *key* is not a single alphabetic character.
+        """
+        if not isinstance(key, str) or len(key) != 1 or not key.isalpha():
+            raise ValueError("sysrq key must be a single alphabetic character")
+        lk = key.lower().encode()
+
+        ser = self._ensure_open()
+        send_break = getattr(ser, "send_break", None)
+        if not callable(send_break):
+            raise RuntimeError(
+                "Serial connection does not support send_break(); "
+                "Magic SysRq over UART is unavailable."
+            )
+        send_break(0.25)
+        time.sleep(0.1)
+        ser.write(lk)
+        ser.flush()
+        captured = self._capture_serial_idle(ser, capture_secs)
+        self._capture_serial_idle(ser, min(0.3, capture_secs))
+        text = captured.decode(errors="replace")
+        return text
+
+    def doctor(
+        self,
+        timeout: float = 10,
+        *,
+        sysrq_diagnose: bool = False,
+        sysrq_blocked: bool = False,
+        sysrq_sync: bool = False,
+        sysrq_reboot: bool = False,
+        sysrq_capture_secs: float = 2.5,
+    ) -> None:
         """Clear stray foreground processes and drain garbage from serial buffer.
 
         Sends multiple Ctrl+C sequences, then waits for a clean prompt.
         Useful after a device reboot or when previous commands left
         interactive programs (top, vi, etc.) running.
+
+        When Ctrl+C fails to restore a shell prompt — for example because the shell
+        is blocked in kernel I/O — optional Magic SysRq steps can clarify the situation
+        (see issue #64). Dangerous SysRq operations are never performed unless explicitly
+        requested via *sysrq_sync* / *sysrq_reboot*.
         """
+        self.last_doctor_report = None
         if not self.is_open:
             self.connect()
         ser = self._ensure_open()
@@ -272,7 +339,7 @@ class SerialSession:
         while True:
             remaining = deadline - (time.monotonic() - start)
             if remaining <= 0:
-                return
+                break
             try:
                 chunk = ser.read(4096)
             except serial.SerialException:
@@ -284,6 +351,48 @@ class SerialSession:
                 if self._check_prompt(bytes(buf)):
                     return
             time.sleep(min(0.1, remaining))
+
+        want_sysrq = (
+            sysrq_diagnose or sysrq_blocked or sysrq_sync or sysrq_reboot
+        )
+        if not want_sysrq:
+            return
+
+        parts: list[str] = []
+
+        try:
+            if sysrq_diagnose:
+                txt = self.sysrq("h", capture_secs=sysrq_capture_secs)
+                parts.append("[sdev SysRq] help (echo after 'h')\n" + txt.strip())
+
+            if sysrq_blocked:
+                txt = self.sysrq("w", capture_secs=sysrq_capture_secs)
+                parts.append("[sdev SysRq] blocked/WCHAN (echo after 'w')\n" + txt.strip())
+                hint = interpret_sysrq_blocked(txt)
+                if hint:
+                    parts.append("[sdev] " + hint)
+
+            if sysrq_sync:
+                self.sysrq("s", capture_secs=min(1.0, sysrq_capture_secs))
+                parts.append(
+                    "[sdev SysRq] sent 's' (sync). Check remote console "
+                    "for kernel confirmation."
+                )
+
+            if sysrq_reboot:
+                self.sysrq("s", capture_secs=min(1.5, sysrq_capture_secs))
+                time.sleep(0.35)
+                self.sysrq(
+                    "b",
+                    capture_secs=min(2.0, sysrq_capture_secs),
+                )
+                parts.append("[sdev SysRq] sent 's' then 'b' (sync + reboot).")
+        except (RuntimeError, ValueError, serial.SerialException) as exc:
+            parts.append(f"[sdev SysRq] error: {exc}")
+
+        report = "\n\n".join(p for p in parts if p)
+        if report:
+            self.last_doctor_report = report
 
     def wait_for_silence(self, timeout: float = 1.5) -> None:
         """Block until no data arrives on the serial line for *timeout* seconds.
@@ -594,6 +703,30 @@ class SerialSession:
         self.close()
 
 
+def interpret_sysrq_blocked(text: str) -> Optional[str]:
+    """Infer whether SysRq *w* output suggests an unrecoverable blocked shell."""
+
+    lowered = text.lower()
+    clues: list[str] = []
+
+    if re.search(r"(?m)^\s*\S[^\n]{0,80}?\sD\s+[0-9]", text):
+        clues.append(
+            "uninterruptible (D-state) tasks appear in SysRq output; "
+            "the shell cannot be recovered with Ctrl+C."
+        )
+    for needle in ("nfs_", "nfs3_", "nfs4_", "rpc_", "rpc_wait"):
+        if needle in lowered:
+            clues.append(
+                "NFS/RPC wait symbols detected — the shell may be stuck on "
+                "network filesystem operations while the NFS path is unavailable."
+            )
+            break
+
+    if not clues:
+        return None
+    return " ".join(clues)
+
+
 # ---------------------------------------------------------------------------
 # Module-level convenience APIs (backward compatibility)
 # ---------------------------------------------------------------------------
@@ -685,9 +818,12 @@ def write(data: bytes) -> int:
     return _default_session.write(data)
 
 
-def doctor(timeout: float = 10) -> None:
-    """Clear stray foreground processes on the default connection."""
-    _default_session.doctor(timeout)
+def doctor(timeout: float = 10, **kwargs) -> None:
+    """Clear stray foreground processes on the default connection.
+
+    Optional keyword arguments match :meth:`SerialSession.doctor` (``sysrq_*``).
+    """
+    _default_session.doctor(timeout, **kwargs)
 
 
 def wait_for_silence(timeout: float = 1.5) -> None:

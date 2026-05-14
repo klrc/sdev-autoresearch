@@ -108,6 +108,37 @@ def main() -> None:
         action="store_true",
         help="Clear stray foreground processes and exit without running a command.",
     )
+    parser.add_argument(
+        "--sysrq-diagnose",
+        action="store_true",
+        help="With --doctor/--doctor-only: if no shell prompt returns, send Magic "
+             "SysRq 'h' (help) over UART and capture output.",
+    )
+    parser.add_argument(
+        "--sysrq-blocked",
+        action="store_true",
+        help="With --doctor/--doctor-only: if no shell prompt returns, send SysRq "
+             "'w' (blocked tasks) and capture output.",
+    )
+    parser.add_argument(
+        "--sysrq-sync",
+        action="store_true",
+        help="With --doctor/--doctor-only: after failed prompt recovery, send SysRq "
+             "'s' (sync disks).",
+    )
+    parser.add_argument(
+        "--sysrq-reboot",
+        action="store_true",
+        help="With --doctor/--doctor-only: after failed prompt recovery, send SysRq "
+             "'s' then 'b' (sync + immediate reboot). Dangerous; opt-in only.",
+    )
+    parser.add_argument(
+        "--sysrq-capture",
+        type=float,
+        metavar="SECS",
+        default=2.5,
+        help="Seconds to read serial after each SysRq (default: 2.5).",
+    )
 
     sub = parser.add_subparsers(dest="subcommand")
     set_parser = sub.add_parser(
@@ -118,6 +149,17 @@ def main() -> None:
     set_parser.add_argument("baud", type=int, help="Baud rate to save as default.")
 
     args = parser.parse_args()
+
+    sysrq_any = (
+        args.sysrq_diagnose
+        or args.sysrq_blocked
+        or args.sysrq_sync
+        or args.sysrq_reboot
+    )
+    if sysrq_any and not (args.doctor or args.doctor_only):
+        parser.error(
+            "--sysrq-* options require --doctor or --doctor-only",
+        )
 
     # Load saved defaults, then override with CLI flags
     defaults = sdev.load_defaults()
@@ -139,12 +181,23 @@ def main() -> None:
             sys.exit(1)
         return
 
+    def _doctor_kw() -> dict:
+        return {
+            "sysrq_diagnose": args.sysrq_diagnose,
+            "sysrq_blocked": args.sysrq_blocked,
+            "sysrq_sync": args.sysrq_sync,
+            "sysrq_reboot": args.sysrq_reboot,
+            "sysrq_capture_secs": args.sysrq_capture,
+        }
+
     # --- --doctor-only: clear foreground processes without running a command ---
     if args.doctor_only:
         device = args.device or defaults.get("device", sdev.DEFAULT_DEVICE)
         baud = args.baud or defaults.get("baud", sdev.DEFAULT_BAUD)
         with sdev.SerialSession(device, baud) as sess:
-            sess.doctor()
+            sess.doctor(**_doctor_kw())
+        if sess.last_doctor_report:
+            print(sess.last_doctor_report, file=sys.stderr)
         print("[sdev] doctor: done")
         return
 
@@ -175,7 +228,9 @@ def main() -> None:
 
     with sdev.SerialSession(device, baud, prompts=prompt_bytes) as sess:
         if args.doctor:
-            sess.doctor()
+            sess.doctor(**_doctor_kw())
+            if sess.last_doctor_report:
+                print(sess.last_doctor_report, file=sys.stderr)
 
         if args.stream:
             if args.grep:

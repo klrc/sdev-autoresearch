@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sdev"
-version = "1.0.0"
+version = "1.0.2"
 description = "Small toolkit for automating a serial-attached Linux shell"
 readme = "README.md"
 license = "MIT"
